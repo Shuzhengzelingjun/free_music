@@ -1,0 +1,17 @@
+{
+  "name": "门店音乐",
+  "short_name": "门店音乐",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#100e0c",
+  "theme_color": "#100e0c",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
