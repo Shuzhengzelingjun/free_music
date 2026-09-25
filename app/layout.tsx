@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     default: STORE_NAME,
     template: `%s · ${STORE_NAME}`,
   },
-  description: "给门店循环播放的背景音乐。保持页面打开即可一直播放。",
+  description: "Background music for the store. Keep this page open and it keeps playing.",
   applicationName: STORE_NAME,
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },
@@ -40,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body className={`${display.variable} ${sans.variable}`}>{children}</body>
     </html>
   );

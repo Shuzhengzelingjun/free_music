@@ -1,5 +1,10 @@
+import { LoginGate } from "@/components/LoginGate";
 import { Player } from "@/components/Player";
 
 export default function HomePage() {
-  return <Player />;
+  return (
+    <LoginGate>
+      <Player />
+    </LoginGate>
+  );
 }

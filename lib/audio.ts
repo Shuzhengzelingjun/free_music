@@ -1,6 +1,6 @@
 import type { Manifest, Playlist, PublicPlaylistResponse, Song } from "@/lib/types";
 
-export const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME || "门店音乐";
+export const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME || "Store Music";
 
 export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".webm", ".mp4"];
 
@@ -34,10 +34,10 @@ export function parseTrackName(filename: string) {
   if (parts.length >= 2) {
     return {
       artist: cleanLabel(parts[0]),
-      title: cleanLabel(parts.slice(1).join(" - ")) || "未命名",
+      title: cleanLabel(parts.slice(1).join(" - ")) || "Untitled",
     };
   }
-  return { artist: "", title: cleanLabel(base) || "未命名" };
+  return { artist: "", title: cleanLabel(base) || "Untitled" };
 }
 
 function cleanLabel(value: string) {
@@ -71,9 +71,9 @@ export function formatElapsed(totalSeconds: number) {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
-  if (minutes > 0) return `${minutes} 分钟`;
-  return `${seconds} 秒`;
+  if (hours > 0) return `${hours} hr ${minutes} min`;
+  if (minutes > 0) return `${minutes} min`;
+  return `${seconds} sec`;
 }
 
 export function buildOrder(list: Array<{ id: string }>, shuffle: boolean, firstId?: string) {

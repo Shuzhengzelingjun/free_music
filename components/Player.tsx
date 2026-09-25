@@ -58,7 +58,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
   const [volume, setVolume] = useState(0.85);
   const [issue, setIssue] = useState("");
   const [clock, setClock] = useState("--:--");
-  const [elapsedLabel, setElapsedLabel] = useState("0 秒");
+  const [elapsedLabel, setElapsedLabel] = useState("0 sec");
   const [resumeTitle, setResumeTitle] = useState<string | null>(null);
 
   function slotEl(slot: Slot) {
@@ -219,10 +219,10 @@ export function Player({ playlistId }: { playlistId?: string }) {
     if (failCount.current >= Math.max(songsRef.current.length, 1)) {
       shouldPlayRef.current = false;
       setPlaying(false);
-      setIssue("这些歌曲暂时都无法播放");
+      setIssue("These tracks can't be played right now");
       return;
     }
-    setIssue("这首歌打不开，已跳到下一首");
+    setIssue("This track couldn't be opened. Skipping to the next one.");
     advance(1);
   };
   api.current.onTime = (slot) => {
@@ -293,7 +293,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
   useEffect(() => {
     const tick = () => {
       const date = new Date();
-      setClock(date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }));
+      setClock(date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }));
       const extra = runAnchor.current ? Date.now() - runAnchor.current : 0;
       setElapsedLabel(formatElapsed((accumulated.current + extra) / 1000));
     };
@@ -309,6 +309,10 @@ export function Player({ playlistId }: { playlistId?: string }) {
         const query = playlistId ? `?id=${encodeURIComponent(playlistId)}` : "";
         const response = await fetch(`/api/playlist${query}`, { cache: "no-store" });
         if (stop) return;
+        if (response.status === 401) {
+          window.location.reload();
+          return;
+        }
         if (response.status === 404) {
           setMissing(true);
           setLoading(false);
@@ -342,7 +346,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
         api.current.armNext();
       } catch {
         if (first && !stop) {
-          setIssue("歌单加载失败，正在重试");
+          setIssue("Couldn't load the playlist. Retrying.");
           setLoading(false);
         }
       }
@@ -415,7 +419,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
         return;
       }
       if (Date.now() - lastMove > 8000 && el.paused) {
-        setIssue("播放卡住了，正在恢复");
+        setIssue("Playback stalled. Trying to resume.");
         void el.play().catch(() => undefined);
       }
     }, 2000);
@@ -505,23 +509,34 @@ export function Player({ playlistId }: { playlistId?: string }) {
   }
   const percent = progress.duration ? (progress.current / progress.duration) * 100 : 0;
 
-  if (loading) return <main className="booting">正在准备歌单</main>;
+  if (loading) return <main className="booting">Preparing playlist</main>;
 
   return (
     <main className="player" style={{ ["--glow" as string]: String(18 + (pos % 6) * 4) }}>
       <header className="topbar">
         <div className="brand-block">
-          <p className="eyebrow">{playlistName || "等待歌单"}</p>
+          <p className="eyebrow">{playlistName || "Waiting for a playlist"}</p>
           <h1 className="brand">{STORE_NAME}</h1>
         </div>
         <div className="clock-block">
           <div className="clock">{clock}</div>
-          <div className="elapsed">已播放 {elapsedLabel}</div>
+          <div className="elapsed">Playing for {elapsedLabel}</div>
         </div>
         <div className="live-pill">
           <span className={playing ? "dot on" : "dot"} />
-          {playing ? "连续播放中" : started ? "已暂停" : "尚未开始"}
-          <a className="admin-link" href="/admin">管理</a>
+          {playing ? "Playing" : started ? "Paused" : "Not started"}
+          <a className="admin-link" href="/admin">Manage</a>
+          <button
+            className="admin-link"
+            type="button"
+            onClick={() => {
+              void fetch("/api/admin/session", { method: "DELETE" }).then(() => {
+                window.location.reload();
+              });
+            }}
+          >
+            Log out
+          </button>
         </div>
       </header>
       <div className="rule" />
@@ -533,9 +548,9 @@ export function Player({ playlistId }: { playlistId?: string }) {
           </div>
         </div>
         <section className="now">
-          <p className="kicker">正在播放 {songs.length ? `${Math.min(pos + 1, songs.length)} / ${songs.length}` : ""}</p>
-          <h2 className="title">{current?.title || "还没有音乐"}</h2>
-          <p className="artist">{current?.artist || (songs.length ? "未知艺人" : "去后台上传歌单后，这里会循环播放")}</p>
+          <p className="kicker">Now playing {songs.length ? `${Math.min(pos + 1, songs.length)} / ${songs.length}` : ""}</p>
+          <h2 className="title">{current?.title || "No music yet"}</h2>
+          <p className="artist">{current?.artist || (songs.length ? "Unknown artist" : "Upload a playlist in Manage and it will loop here.")}</p>
           <p className="issue" role="status">{issue}</p>
           <div className="timeline">
             <input
@@ -544,7 +559,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
               max={progress.duration || 0}
               step={0.1}
               value={Math.min(progress.current, progress.duration || 0)}
-              aria-label="播放进度"
+              aria-label="Seek"
               disabled={!current}
               style={{ background: `linear-gradient(90deg, var(--accent) ${percent}%, rgba(243,236,223,.18) ${percent}%)` }}
               onChange={(event) => {
@@ -560,19 +575,19 @@ export function Player({ playlistId }: { playlistId?: string }) {
             </div>
           </div>
           <div className="controls">
-            <button className="icon-btn" type="button" aria-label="上一首" onClick={prev} disabled={!songs.length}>
+            <button className="icon-btn" type="button" aria-label="Previous" onClick={prev} disabled={!songs.length}>
               <PrevIcon />
             </button>
             <button
               className="play-btn"
               type="button"
-              aria-label={playing ? "暂停" : "播放"}
+              aria-label={playing ? "Pause" : "Play"}
               disabled={!songs.length}
               onClick={() => (started ? setWantPlay(!playing) : start())}
             >
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
-            <button className="icon-btn" type="button" aria-label="下一首" onClick={() => advance(1)} disabled={!songs.length}>
+            <button className="icon-btn" type="button" aria-label="Next" onClick={() => advance(1)} disabled={!songs.length}>
               <NextIcon />
             </button>
           </div>
@@ -591,17 +606,17 @@ export function Player({ playlistId }: { playlistId?: string }) {
                 if (startedRef.current) armNext();
               }}
             >
-              {shuffle ? "随机播放" : "顺序播放"}
+              {shuffle ? "Shuffle" : "In order"}
             </button>
             <label className="vol">
-              音量
+              Volume
               <input
                 type="range"
                 min={0}
                 max={1}
                 step={0.01}
                 value={volume}
-                aria-label="音量"
+                aria-label="Volume"
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
             </label>
@@ -613,23 +628,23 @@ export function Player({ playlistId }: { playlistId?: string }) {
                 else void document.exitFullscreen();
               }}
             >
-              全屏
+              Full screen
             </button>
-            <span className="hints">空格暂停 · 左右切歌</span>
+            <span className="hints">Space to pause · Arrow keys to skip</span>
           </div>
         </section>
         <aside className="queue">
-          <h2>接下来</h2>
+          <h2>Up next</h2>
           {queue.length === 0 ? (
-            <p className="quiet">{songs.length ? "只有这一首，会重复播放。" : "歌单是空的。"}</p>
+            <p className="quiet">{songs.length ? "Only one track. It will repeat." : "This playlist is empty."}</p>
           ) : (
             <ol>
               {queue.map((song) => (
                 <li key={`${song.id}-${song.lead ? "next" : "later"}`}>
                   <button type="button" onClick={() => playFromQueue(song.id)}>
-                    {song.lead ? <span className="q-next">下一首</span> : null}
+                    {song.lead ? <span className="q-next">Next</span> : null}
                     <span className="q-title">{song.title}</span>
-                    <span className="q-artist">{song.artist || "未知艺人"}</span>
+                    <span className="q-artist">{song.artist || "Unknown artist"}</span>
                   </button>
                 </li>
               ))}
@@ -641,21 +656,21 @@ export function Player({ playlistId }: { playlistId?: string }) {
         <div className="gate">
           <div className="gate-card">
             <p className="eyebrow">{STORE_NAME}</p>
-            <h2>{missing ? "找不到歌单" : playlistName || "准备播放"}</h2>
+            <h2>{missing ? "Playlist not found" : playlistName || "Ready to play"}</h2>
             {missing ? (
-              <p>这个播放链接没有对应的歌单。</p>
+              <p>This link doesn't match a playlist.</p>
             ) : songs.length ? (
               <p>
-                共 {songs.length} 首，开始后会按歌单一直循环。请让这个页面保持打开，切到其他窗口也会继续播放，屏幕会尽量保持常亮。
-                {resumeTitle ? ` 上次听到「${resumeTitle}」。` : ""}
+                {songs.length} tracks. Playback loops the playlist. Keep this page open. Audio continues in other windows, and the screen stays awake while this page is visible.
+                {resumeTitle ? ` Last time you were on “${resumeTitle}”.` : ""}
               </p>
             ) : (
               <p>
-                还没有歌曲。请先在<a href="/admin">后台</a>上传歌单。
+                No tracks yet. Upload a playlist in <a href="/admin">Manage</a>.
               </p>
             )}
             <button className="big-play" type="button" onClick={start} disabled={!songs.length}>
-              {resumeTitle ? "继续播放" : "开始播放"}
+              {resumeTitle ? "Resume" : "Start"}
             </button>
           </div>
         </div>

@@ -5,13 +5,21 @@ const COOKIE = "fm_session";
 const MAX_AGE = 60 * 60 * 24 * 14;
 
 function secret() {
-  return process.env.ADMIN_SECRET || process.env.ADMIN_PASSWORD || "freemusic-dev-secret";
+  return process.env.ADMIN_SECRET || process.env.STORE_PASSWORD || "Heychic8888";
 }
 
-export function adminPassword() {
-  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
-  if (process.env.NODE_ENV === "production") return null;
-  return "admin";
+export function expectedAccount() {
+  return {
+    username: process.env.STORE_USERNAME || "Heychic",
+    password: process.env.STORE_PASSWORD || "Heychic8888",
+  };
+}
+
+export function credentialsMatch(username: string, password: string) {
+  const expected = expectedAccount();
+  const userOk = passwordsMatch(username.trim().toLowerCase(), expected.username.trim().toLowerCase());
+  const passOk = passwordsMatch(password, expected.password);
+  return userOk && passOk;
 }
 
 export function passwordsMatch(input: string, expected: string) {

@@ -12,8 +12,8 @@ export async function POST(request: Request) {
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        if (!(await isAuthed())) throw new Error("未登录");
-        if (!pathname.startsWith("freemusic/audio/")) throw new Error("路径无效");
+        if (!(await isAuthed())) throw new Error("Not signed in");
+        if (!pathname.startsWith("freemusic/audio/")) throw new Error("Invalid path");
         return {
           allowedContentTypes: ["audio/*", "video/mp4", "application/octet-stream"],
           maximumSizeInBytes: 100 * 1024 * 1024,
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     });
     return Response.json(jsonResponse);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "上传失败";
-    return Response.json({ error: message }, { status: message === "未登录" ? 401 : 400 });
+    const message = error instanceof Error ? error.message : "Upload failed";
+    return Response.json({ error: message }, { status: message === "Not signed in" ? 401 : 400 });
   }
 }

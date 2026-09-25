@@ -15,7 +15,7 @@ type Job = { id: string; name: string; progress: number; status: string };
 
 export function AdminPanel() {
   const [authed, setAuthed] = useState<boolean | null>(null);
-  const [devHint, setDevHint] = useState(false);
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [library, setLibrary] = useState<LibraryResponse | null>(null);
@@ -39,7 +39,6 @@ export function AdminPanel() {
   async function loadSession() {
     const response = await fetch("/api/admin/session", { cache: "no-store" });
     const data = await response.json();
-    setDevHint(Boolean(data.devHint));
     setAuthed(Boolean(data.ok));
     if (data.ok) await loadLibrary();
   }
@@ -73,11 +72,11 @@ export function AdminPanel() {
     const response = await fetch("/api/admin/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
     const data = await response.json();
     if (!response.ok) {
-      setLoginError(data.error || "登录失败");
+      setLoginError(data.error || "Couldn't log in");
       return;
     }
     setAuthed(true);
@@ -95,9 +94,9 @@ export function AdminPanel() {
       const data = await response.json();
       if (response.status === 401) {
         setAuthed(false);
-        throw new Error("登录已失效");
+        throw new Error("Session expired");
       }
-      if (!response.ok) throw new Error(data.error || "操作失败");
+      if (!response.ok) throw new Error(data.error || "Something went wrong");
       setLibrary((current) => (current ? { ...current, manifest: data.manifest as Manifest } : current));
       return data.manifest as Manifest;
     } finally {
@@ -110,15 +109,15 @@ export function AdminPanel() {
     const files = Array.from(list);
     for (const file of files) {
       if (!isAudioFilename(file.name)) {
-        notify(`${file.name} 不是支持的音频`);
+        notify(`${file.name} is not a supported audio file`);
         continue;
       }
       if (file.size > 100 * 1024 * 1024) {
-        notify(`${file.name} 超过 100MB`);
+        notify(`${file.name} is over 100MB`);
         continue;
       }
       const jobId = `${file.name}-${Date.now()}`;
-      setJobs((current) => [...current, { id: jobId, name: file.name, progress: 0, status: "正在上传" }]);
+      setJobs((current) => [...current, { id: jobId, name: file.name, progress: 0, status: "Uploading" }]);
       try {
         const parsed = parseTrackName(file.name);
         const manifest = library.storage === "blob"
@@ -132,9 +131,9 @@ export function AdminPanel() {
             setUploadTo(created.id);
           }
         }
-        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress: 100, status: "已加入歌单" } : job)));
+        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress: 100, status: "Added" } : job)));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "上传失败";
+        const message = error instanceof Error ? error.message : "Upload failed";
         setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, status: message } : job)));
         notify(message);
       }
@@ -149,7 +148,7 @@ export function AdminPanel() {
     if (uploadTo) form.set("playlistId", uploadTo);
     const response = await fetch("/api/admin/upload", { method: "POST", body: form });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "上传失败");
+    if (!response.ok) throw new Error(data.error || "Upload failed");
     return data.manifest as Manifest;
   }
 
@@ -178,7 +177,7 @@ export function AdminPanel() {
       }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "歌曲已上传，但写入歌单失败");
+    if (!response.ok) throw new Error(data.error || "The file uploaded, but it could not be added to the playlist");
     return data.manifest as Manifest;
   }
 
@@ -191,30 +190,36 @@ export function AdminPanel() {
       return;
     }
     audio.src = song.url;
-    void audio.play().then(() => setPreviewId(song.id)).catch(() => notify("这段音频暂时播不了"));
+    void audio.play().then(() => setPreviewId(song.id)).catch(() => notify("This audio can't be played right now"));
   }
 
-  if (authed === null) return <main className="booting">正在打开后台</main>;
+  if (authed === null) return <main className="booting">Opening manage</main>;
 
   if (!authed) {
     return (
       <main className="login">
         <section className="login-card">
           <p className="eyebrow">{STORE_NAME}</p>
-          <h1>后台</h1>
-          <p>登录后可以上传歌曲、整理歌单，并指定门店正在播放的列表。</p>
+          <h1>Manage</h1>
+          <p>Log in to upload tracks, edit playlists, and choose what the store is playing.</p>
           <form onSubmit={login}>
+            <input
+              className="field"
+              value={username}
+              autoComplete="username"
+              placeholder="Username"
+              onChange={(event) => setUsername(event.target.value)}
+            />
             <input
               className="field"
               type="password"
               value={password}
               autoComplete="current-password"
-              placeholder="密码"
+              placeholder="Password"
               onChange={(event) => setPassword(event.target.value)}
             />
-            <button className="primary" type="submit">登录</button>
+            <button className="primary" type="submit">Log in</button>
             <p className="error">{loginError}</p>
-            {devHint ? <p className="quiet">本地默认密码是 admin。部署后请设置 ADMIN_PASSWORD。</p> : null}
           </form>
         </section>
       </main>
@@ -234,12 +239,12 @@ export function AdminPanel() {
     <main className="admin">
       <header className="admin-top">
         <div>
-          <p className="eyebrow">歌单管理</p>
-          <h1>后台</h1>
+          <p className="eyebrow">Playlists</p>
+          <h1>Manage</h1>
         </div>
         <div className="admin-actions row">
-          <span className="badge">{library?.storage === "blob" ? "云端存储" : "本机存储"}</span>
-          <a className="ghost" href="/" target="_blank" rel="noreferrer">打开播放页</a>
+          <span className="badge">{library?.storage === "blob" ? "Cloud storage" : "Local storage"}</span>
+          <a className="ghost" href="/" target="_blank" rel="noreferrer">Open player</a>
           <button
             className="ghost"
             type="button"
@@ -248,33 +253,32 @@ export function AdminPanel() {
               setAuthed(false);
             }}
           >
-            退出
+            Log out
           </button>
         </div>
       </header>
 
       {library && !library.persistent ? (
         <section className="callout">
-          <strong>还不能在线上保存歌曲。</strong>
+          <strong>Songs can't be saved online yet.</strong>
           <ol>
-            <li>打开 Vercel 项目，进入 Storage，创建一个 Blob 存储并连接到这个项目。</li>
-            <li>在 Settings → Environment Variables 设置 ADMIN_PASSWORD。</li>
-            <li>重新部署。之后在这里上传的歌曲会一直保留，播放页可以循环播放。</li>
+            <li>In the Vercel project, open Storage, create a Blob store, and connect it to this project.</li>
+            <li>Redeploy. Uploaded tracks will stay, and the player can loop them.</li>
           </ol>
         </section>
       ) : null}
 
       {library?.persistent && library.storage === "local" ? (
         <p className="quiet" style={{ padding: "12px 28px 0" }}>
-          当前歌曲保存在这台电脑，方便本地试听。部署到 Vercel 后请连接 Blob，歌曲会改存到云端。
+          Tracks are saved on this computer for local preview. Connect Blob when you deploy to Vercel so they are stored in the cloud.
         </p>
       ) : null}
 
       <div className="admin-shell">
         <aside className="sidebar">
           <div className="side-head">
-            <h2>歌单</h2>
-            <button className="text-btn" type="button" onClick={() => setSelected("library")}>曲库</button>
+            <h2>Playlists</h2>
+            <button className="text-btn" type="button" onClick={() => setSelected("library")}>Library</button>
           </div>
           {(manifest?.playlists || []).map((item) => (
             <button
@@ -288,9 +292,9 @@ export function AdminPanel() {
             >
               <span>
                 <strong>{item.name}</strong>
-                <small>{item.songIds.length} 首</small>
+                <small>{item.songIds.length} tracks</small>
               </span>
-              {manifest?.activePlaylistId === item.id ? <em>播放中</em> : null}
+              {manifest?.activePlaylistId === item.id ? <em>Live</em> : null}
             </button>
           ))}
           <form
@@ -308,12 +312,12 @@ export function AdminPanel() {
                 }
                 setNewName("");
               } catch (error) {
-                notify(error instanceof Error ? error.message : "创建失败");
+                notify(error instanceof Error ? error.message : "Couldn't create the playlist");
               }
             }}
           >
-            <input value={newName} placeholder="新歌单名称" onChange={(event) => setNewName(event.target.value)} />
-            <button className="primary" type="submit" disabled={busy || !library?.persistent}>创建</button>
+            <input value={newName} placeholder="New playlist name" onChange={(event) => setNewName(event.target.value)} />
+            <button className="primary" type="submit" disabled={busy || !library?.persistent}>Create</button>
           </form>
         </aside>
 
@@ -332,12 +336,12 @@ export function AdminPanel() {
                 void onFiles(event.dataTransfer.files);
               }}
             >
-              <strong>上传歌曲</strong>
-              <p>把 mp3、m4a、wav 拖到这里，或点击选择。可以一次传很多首。文件名写成「艺人 - 歌名」会自动填好。</p>
-              <p className="quiet">请只上传你有权在门店播放的音乐。歌曲链接是公开的，拿到链接的人可以播放。</p>
+              <strong>Upload tracks</strong>
+              <p>Drop mp3, m4a, or wav files here, or click to choose. You can upload many at once. Name a file “Artist - Title” and those fields fill in automatically.</p>
+              <p className="quiet">Only upload music you have the right to play in the store. Track links are public, so anyone with the link can play them.</p>
               {manifest?.playlists.length ? (
                 <label className="quiet">
-                  上传到
+                  Upload to
                   <select className="field" value={uploadTo} onChange={(event) => setUploadTo(event.target.value)}>
                     {manifest.playlists.map((item) => (
                       <option key={item.id} value={item.id}>{item.name}</option>
@@ -345,9 +349,9 @@ export function AdminPanel() {
                   </select>
                 </label>
               ) : (
-                <p className="quiet">还没有歌单，上传后会自动创建「门店歌单」。</p>
+                <p className="quiet">There is no playlist yet. The first upload creates “Store playlist”.</p>
               )}
-              <button className="primary" type="button" onClick={() => fileRef.current?.click()}>选择文件</button>
+              <button className="primary" type="button" onClick={() => fileRef.current?.click()}>Choose files</button>
               <input
                 ref={fileRef}
                 type="file"
@@ -361,7 +365,7 @@ export function AdminPanel() {
               {jobs.length ? (
                 <div className="jobs">
                   {jobs.slice(-4).map((job) => (
-                    <div key={job.id}>{job.name} · {job.status}{job.status === "正在上传" ? ` ${job.progress}%` : ""}</div>
+                    <div key={job.id}>{job.name} · {job.status}{job.status === "Uploading" ? ` ${job.progress}%` : ""}</div>
                   ))}
                 </div>
               ) : null}
@@ -375,14 +379,14 @@ export function AdminPanel() {
                   className="field"
                   defaultValue={playlist.name}
                   key={playlist.id + playlist.name}
-                  aria-label="歌单名称"
+                  aria-label="Playlist name"
                   onBlur={async (event) => {
                     const name = event.target.value.trim();
                     if (!name || name === playlist.name) return;
                     try {
                       await act({ action: "rename-playlist", id: playlist.id, name });
                     } catch (error) {
-                      notify(error instanceof Error ? error.message : "重命名失败");
+                      notify(error instanceof Error ? error.message : "Couldn't rename the playlist");
                     }
                   }}
                 />
@@ -393,13 +397,13 @@ export function AdminPanel() {
                   onClick={async () => {
                     try {
                       await act({ action: "set-active", id: playlist.id });
-                      notify("门店播放页会使用这个歌单");
+                      notify("The store player will use this playlist");
                     } catch (error) {
-                      notify(error instanceof Error ? error.message : "设置失败");
+                      notify(error instanceof Error ? error.message : "Couldn't set the live playlist");
                     }
                   }}
                 >
-                  {manifest?.activePlaylistId === playlist.id ? "门店正在播放" : "设为门店播放"}
+                  {manifest?.activePlaylistId === playlist.id ? "Now playing in store" : "Set as store playlist"}
                 </button>
                 <button
                   className="ghost"
@@ -407,28 +411,28 @@ export function AdminPanel() {
                   onClick={async () => {
                     const url = `${window.location.origin}/play/${playlist.id}`;
                     await navigator.clipboard.writeText(url);
-                    notify("这个歌单的播放链接已复制");
+                    notify("Playlist link copied");
                   }}
                 >
-                  复制链接
+                  Copy link
                 </button>
                 <button
                   className="danger"
                   type="button"
                   onClick={async () => {
-                    if (!confirm(`删除歌单「${playlist.name}」？歌曲仍会留在曲库。`)) return;
+                    if (!confirm(`Delete playlist “${playlist.name}”? Tracks stay in the library.`)) return;
                     try {
                       await act({ action: "delete-playlist", id: playlist.id });
                       setSelected("library");
                     } catch (error) {
-                      notify(error instanceof Error ? error.message : "删除失败");
+                      notify(error instanceof Error ? error.message : "Couldn't delete");
                     }
                   }}
                 >
-                  删除歌单
+                  Delete playlist
                 </button>
               </div>
-              {playlistSongs.length === 0 ? <p className="quiet">这个歌单还没有歌。</p> : null}
+              {playlistSongs.length === 0 ? <p className="quiet">This playlist has no tracks yet.</p> : null}
               {playlistSongs.map((song, index) => (
                 <SongRow
                   key={song.id}
@@ -442,8 +446,8 @@ export function AdminPanel() {
                   }}
                   extra={
                     <>
-                      <button className="text-btn" type="button" disabled={index === 0} onClick={() => move(playlist, index, -1)}>上移</button>
-                      <button className="text-btn" type="button" disabled={index === playlistSongs.length - 1} onClick={() => move(playlist, index, 1)}>下移</button>
+                      <button className="text-btn" type="button" disabled={index === 0} onClick={() => move(playlist, index, -1)}>Up</button>
+                      <button className="text-btn" type="button" disabled={index === playlistSongs.length - 1} onClick={() => move(playlist, index, 1)}>Down</button>
                       <button
                         className="text-btn"
                         type="button"
@@ -451,11 +455,11 @@ export function AdminPanel() {
                           try {
                             await act({ action: "remove-from-playlist", playlistId: playlist.id, songId: song.id });
                           } catch (error) {
-                            notify(error instanceof Error ? error.message : "移除失败");
+                            notify(error instanceof Error ? error.message : "Couldn't remove the track");
                           }
                         }}
                       >
-                        移出
+                        Remove
                       </button>
                     </>
                   }
@@ -465,9 +469,9 @@ export function AdminPanel() {
           ) : (
             <>
               <div className="panel-head">
-                <h2>全部曲库</h2>
+                <h2>All tracks</h2>
               </div>
-              {librarySongs.length === 0 ? <p className="quiet">曲库是空的。</p> : null}
+              {librarySongs.length === 0 ? <p className="quiet">The library is empty.</p> : null}
               {librarySongs.map((song, index) => (
                 <SongRow
                   key={song.id}
@@ -489,13 +493,13 @@ export function AdminPanel() {
                           if (!playlistId) return;
                           try {
                             await act({ action: "add-to-playlist", playlistId, songId: song.id });
-                            notify("已加入歌单");
+                            notify("Added to playlist");
                           } catch (error) {
-                            notify(error instanceof Error ? error.message : "加入失败");
+                            notify(error instanceof Error ? error.message : "Couldn't add the track");
                           }
                         }}
                       >
-                        <option value="">加入歌单</option>
+                        <option value="">Add to playlist</option>
                         {(manifest?.playlists || []).map((item) => (
                           <option key={item.id} value={item.id}>{item.name}</option>
                         ))}
@@ -504,15 +508,15 @@ export function AdminPanel() {
                         className="text-btn danger"
                         type="button"
                         onClick={async () => {
-                          if (!confirm(`删除「${song.title}」和音频文件？`)) return;
+                          if (!confirm(`Delete “${song.title}” and the audio file?`)) return;
                           try {
                             await act({ action: "delete-song", id: song.id });
                           } catch (error) {
-                            notify(error instanceof Error ? error.message : "删除失败");
+                            notify(error instanceof Error ? error.message : "Couldn't delete");
                           }
                         }}
                       >
-                        删除
+                        Delete
                       </button>
                     </>
                   }
@@ -543,7 +547,7 @@ export function AdminPanel() {
     try {
       await act({ action: "reorder", playlistId: target.id, songIds: ids });
     } catch (error) {
-      notify(error instanceof Error ? error.message : "调整顺序失败");
+      notify(error instanceof Error ? error.message : "Couldn't reorder");
     }
   }
 }
@@ -576,7 +580,7 @@ function SongRow({
       <div className="song-main">
         <input
           value={title}
-          aria-label="歌名"
+          aria-label="Title"
           onChange={(event) => setTitle(event.target.value)}
           onBlur={() => {
             if (title.trim() && (title !== song.title || artist !== song.artist)) {
@@ -586,8 +590,8 @@ function SongRow({
         />
         <input
           value={artist}
-          aria-label="艺人"
-          placeholder="艺人"
+          aria-label="Artist"
+          placeholder="Artist"
           onChange={(event) => setArtist(event.target.value)}
           onBlur={() => {
             if ((title !== song.title || artist !== song.artist) && title.trim()) {
@@ -595,7 +599,7 @@ function SongRow({
             }
           }}
         />
-        <button className="ghost" type="button" onClick={onPreview}>{previewing ? "停止" : "试听"}</button>
+        <button className="ghost" type="button" onClick={onPreview}>{previewing ? "Stop" : "Preview"}</button>
       </div>
       <div className="row-actions">{extra}</div>
     </div>

@@ -31,15 +31,15 @@ export async function applyAction(body: Record<string, unknown>): Promise<Manife
     case "reorder":
       return reorder(text(body.playlistId, 80), body.songIds);
     default:
-      throw new HttpError("未知操作");
+      throw new HttpError("Unknown action");
   }
 }
 
 export function addSong(input: { title: string; artist: string; url: string; playlistId?: string | null }) {
   const title = input.title.trim();
   const artist = input.artist.trim();
-  if (!title) throw new HttpError("请填写歌名");
-  if (!isSafeAudioUrl(input.url)) throw new HttpError("音频地址无效");
+  if (!title) throw new HttpError("Enter a track title");
+  if (!isSafeAudioUrl(input.url)) throw new HttpError("Invalid audio URL");
   return updateManifest((manifest) => {
     let song = manifest.songs.find((item) => item.url === input.url);
     if (!song) {
@@ -61,7 +61,7 @@ export function addSong(input: { title: string; artist: string; url: string; pla
       if (manifest.playlists.length === 0) {
         const playlist = {
           id: crypto.randomUUID(),
-          name: "门店歌单",
+          name: "Store playlist",
           songIds: [] as string[],
           createdAt: new Date().toISOString(),
         };
@@ -73,13 +73,13 @@ export function addSong(input: { title: string; artist: string; url: string; pla
       }
     }
     const playlist = manifest.playlists.find((item) => item.id === playlistId);
-    if (!playlist) throw new HttpError("找不到歌单");
+    if (!playlist) throw new HttpError("Playlist not found");
     if (!playlist.songIds.includes(songId)) playlist.songIds.push(songId);
   });
 }
 
 async function createPlaylist(name: string) {
-  if (!name) throw new HttpError("请填写歌单名称");
+  if (!name) throw new HttpError("Enter a playlist name");
   return updateManifest((manifest) => {
     const playlist = {
       id: crypto.randomUUID(),
@@ -93,7 +93,7 @@ async function createPlaylist(name: string) {
 }
 
 async function renamePlaylist(id: string, name: string) {
-  if (!name) throw new HttpError("请填写歌单名称");
+  if (!name) throw new HttpError("Enter a playlist name");
   return updateManifest((manifest) => {
     const playlist = requirePlaylist(manifest, id);
     playlist.name = name;
@@ -117,10 +117,10 @@ async function setActive(id: string) {
 }
 
 async function updateSong(id: string, title: string, artist: string) {
-  if (!title) throw new HttpError("歌名不能为空");
+  if (!title) throw new HttpError("Title cannot be empty");
   return updateManifest((manifest) => {
     const song = manifest.songs.find((item) => item.id === id);
-    if (!song) throw new HttpError("找不到歌曲");
+    if (!song) throw new HttpError("Track not found");
     song.title = title;
     song.artist = artist;
   });
@@ -128,7 +128,7 @@ async function updateSong(id: string, title: string, artist: string) {
 
 async function deleteSong(id: string) {
   const existing = (await readManifest()).songs.find((song) => song.id === id);
-  if (!existing) throw new HttpError("找不到歌曲");
+  if (!existing) throw new HttpError("Track not found");
   const manifest = await updateManifest((current) => {
     current.songs = current.songs.filter((song) => song.id !== id);
     for (const playlist of current.playlists) {
@@ -149,21 +149,21 @@ async function removeFromPlaylist(playlistId: string, songId: string) {
 async function addToPlaylist(playlistId: string, songId: string) {
   return updateManifest((manifest) => {
     const playlist = requirePlaylist(manifest, playlistId);
-    if (!manifest.songs.some((song) => song.id === songId)) throw new HttpError("找不到歌曲");
+    if (!manifest.songs.some((song) => song.id === songId)) throw new HttpError("Track not found");
     if (!playlist.songIds.includes(songId)) playlist.songIds.push(songId);
   });
 }
 
 async function reorder(playlistId: string, songIds: unknown) {
   if (!Array.isArray(songIds) || songIds.some((id) => typeof id !== "string")) {
-    throw new HttpError("顺序无效");
+    throw new HttpError("Invalid order");
   }
   const ids = songIds as string[];
   return updateManifest((manifest) => {
     const playlist = requirePlaylist(manifest, playlistId);
     const allowed = new Set(playlist.songIds);
     if (ids.length !== playlist.songIds.length || ids.some((id) => !allowed.has(id))) {
-      throw new HttpError("顺序无效");
+      throw new HttpError("Invalid order");
     }
     playlist.songIds = [...ids];
   });
@@ -171,7 +171,7 @@ async function reorder(playlistId: string, songIds: unknown) {
 
 function requirePlaylist(manifest: Manifest, id: string) {
   const playlist = manifest.playlists.find((item) => item.id === id);
-  if (!playlist) throw new HttpError("找不到歌单");
+  if (!playlist) throw new HttpError("Playlist not found");
   return playlist;
 }
 

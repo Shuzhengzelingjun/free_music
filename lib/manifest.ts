@@ -132,5 +132,5 @@ async function fetchFresh(url: string) {
     last = response;
     await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
   }
-  throw new Error(`读取歌单失败 (${last?.status || "unknown"})`);
+  throw new Error(`Couldn't read the playlist (${last?.status || "unknown"})`);
 }

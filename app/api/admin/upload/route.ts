@@ -18,22 +18,22 @@ function isUploadedFile(value: FormDataEntryValue | null): value is File {
 }
 
 export async function POST(request: Request) {
-  if (!(await isAuthed())) return Response.json({ error: "未登录" }, { status: 401 });
+  if (!(await isAuthed())) return Response.json({ error: "Not signed in" }, { status: 401 });
   if (!persistentStorage()) {
-    return Response.json({ error: "请先连接 Vercel Blob 再上传" }, { status: 400 });
+    return Response.json({ error: "Connect Vercel Blob before uploading" }, { status: 400 });
   }
   if (storageMode() === "blob") {
-    return Response.json({ error: "当前环境请使用直传到 Blob" }, { status: 400 });
+    return Response.json({ error: "Use direct Blob upload in this environment" }, { status: 400 });
   }
   try {
     const form = await request.formData();
     const file = form.get("file");
-    if (!isUploadedFile(file)) return Response.json({ error: "请选择音频文件" }, { status: 400 });
+    if (!isUploadedFile(file)) return Response.json({ error: "Choose an audio file" }, { status: 400 });
     if (!isAudioFilename(file.name)) {
-      return Response.json({ error: "只支持 mp3、m4a、wav、aac、ogg、flac" }, { status: 400 });
+      return Response.json({ error: "Only mp3, m4a, wav, aac, ogg, and flac are supported" }, { status: 400 });
     }
     if (file.size <= 0 || file.size > MAX_BYTES) {
-      return Response.json({ error: "文件需要小于 100MB" }, { status: 400 });
+      return Response.json({ error: "File must be under 100MB" }, { status: 400 });
     }
     const extension = extensionOf(file.name);
     const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}${extension}`;

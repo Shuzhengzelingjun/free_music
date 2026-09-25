@@ -12,7 +12,7 @@ export function jsonError(error: unknown) {
     return Response.json({ error: error.message }, { status: error.status });
   }
   console.error(error);
-  return Response.json({ error: "操作失败" }, { status: 500 });
+  return Response.json({ error: "Something went wrong" }, { status: 500 });
 }
 
 const attempts = new Map<string, { count: number; reset: number }>();

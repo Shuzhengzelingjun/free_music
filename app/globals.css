@@ -241,6 +241,7 @@ a { color: var(--accent-2); }
 }
 .booting { min-height: 100vh; display: grid; place-items: center; color: var(--muted); }
 .admin-link { color: var(--muted); text-decoration: none; font-size: 14px; }
+button.admin-link { background: none; border: 0; padding: 0; }
 .admin { min-height: 100vh; padding-bottom: 48px; }
 .admin-top h1 { font-size: 32px; }
 .admin-actions, .row { gap: 10px; flex-wrap: wrap; }

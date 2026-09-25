@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!(await isAuthed())) return Response.json({ error: "未登录" }, { status: 401 });
+  if (!(await isAuthed())) return Response.json({ error: "Not signed in" }, { status: 401 });
   const manifest = await readManifest();
   return Response.json({
     manifest,
@@ -17,10 +17,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (!(await isAuthed())) return Response.json({ error: "未登录" }, { status: 401 });
+  if (!(await isAuthed())) return Response.json({ error: "Not signed in" }, { status: 401 });
   if (!persistentStorage()) {
     return Response.json(
-      { error: "请先在 Vercel 连接 Blob 存储，否则歌单无法保存。" },
+      { error: "Connect Vercel Blob storage first, or playlists will not be saved." },
       { status: 400 },
     );
   }
