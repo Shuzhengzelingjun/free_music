@@ -121,7 +121,11 @@ export function Player({
         failCount.current = 0;
         setPlaying(true);
         setIssue("");
-      }).catch(() => undefined);
+      }).catch(() => {
+        if (token !== playToken.current) return;
+        shouldPlayRef.current = false;
+        setPlaying(false);
+      });
     };
     if (el.dataset.songId !== song.id) {
       el.dataset.songId = song.id;
@@ -177,7 +181,12 @@ export function Player({
       return;
     }
     if (!el?.dataset.songId) playCurrent(false);
-    else void el.play().catch(() => undefined);
+    else {
+      void el.play().catch(() => {
+        shouldPlayRef.current = false;
+        setPlaying(false);
+      });
+    }
   }
 
   function start() {
@@ -185,7 +194,6 @@ export function Player({
     startedRef.current = true;
     setStarted(true);
     shouldPlayRef.current = true;
-    setPlaying(true);
     const saved = resumeRef.current;
     const savedId = saved && songsRef.current.some((song) => song.id === saved.songId) ? saved.songId : undefined;
     const nextOrder = shuffleRef.current
@@ -202,7 +210,6 @@ export function Player({
     startedRef.current = true;
     setStarted(true);
     shouldPlayRef.current = true;
-    setPlaying(true);
     commitOrder(orderRef.current, index);
     playCurrent(false);
   }
