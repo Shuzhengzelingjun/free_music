@@ -49,7 +49,6 @@ export function Player({ playlistId }: { playlistId?: string }) {
   const [order, setOrder] = useState<string[]>([]);
   const [pos, setPos] = useState(0);
   const [playlistName, setPlaylistName] = useState("");
-  const [missing, setMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [started, setStarted] = useState(false);
@@ -59,7 +58,6 @@ export function Player({ playlistId }: { playlistId?: string }) {
   const [issue, setIssue] = useState("");
   const [clock, setClock] = useState("--:--");
   const [elapsedLabel, setElapsedLabel] = useState("0 sec");
-  const [resumeTitle, setResumeTitle] = useState<string | null>(null);
 
   function slotEl(slot: Slot) {
     return slot === "a" ? aRef.current : bRef.current;
@@ -314,7 +312,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
           return;
         }
         if (response.status === 404) {
-          setMissing(true);
+          setIssue("Playlist not found");
           setLoading(false);
           return;
         }
@@ -327,7 +325,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
         songsRef.current = list;
         setSongs(list);
         setPlaylistName(data.playlist?.name || "");
-        setMissing(Boolean(playlistId) && !data.playlist);
+        if (Boolean(playlistId) && !data.playlist) setIssue("Playlist not found");
         setLoading(false);
         const ids = list.map((song) => song.id);
         const idSet = new Set(ids);
@@ -360,20 +358,19 @@ export function Player({ playlistId }: { playlistId?: string }) {
   }, [playlistId]);
 
   useEffect(() => {
-    if (startedRef.current) return;
+    if (startedRef.current || !songs.length) return;
     const raw = localStorage.getItem(storageKey);
-    if (!raw) {
-      setResumeTitle(null);
-      return;
+    if (raw) {
+      try {
+        const saved = JSON.parse(raw) as { songId?: string; time?: number };
+        if (saved.songId && songs.some((song) => song.id === saved.songId)) {
+          resumeRef.current = { songId: saved.songId, time: Number(saved.time) || 0 };
+        }
+      } catch {
+        resumeRef.current = null;
+      }
     }
-    try {
-      const saved = JSON.parse(raw) as { songId?: string; time?: number };
-      if (!saved.songId) return;
-      resumeRef.current = { songId: saved.songId, time: Number(saved.time) || 0 };
-      setResumeTitle(songs.find((song) => song.id === saved.songId)?.title ?? null);
-    } catch {
-      setResumeTitle(null);
-    }
+    start();
   }, [songs, storageKey]);
 
   useEffect(() => {
@@ -652,29 +649,6 @@ export function Player({ playlistId }: { playlistId?: string }) {
           )}
         </aside>
       </section>
-      {!started ? (
-        <div className="gate">
-          <div className="gate-card">
-            <p className="eyebrow">{STORE_NAME}</p>
-            <h2>{missing ? "Playlist not found" : playlistName || "Ready to play"}</h2>
-            {missing ? (
-              <p>This link doesn't match a playlist.</p>
-            ) : songs.length ? (
-              <p>
-                {songs.length} tracks. Playback loops the playlist. Keep this page open. Audio continues in other windows, and the screen stays awake while this page is visible.
-                {resumeTitle ? ` Last time you were on “${resumeTitle}”.` : ""}
-              </p>
-            ) : (
-              <p>
-                No tracks yet. Upload a playlist in <a href="/admin">Manage</a>.
-              </p>
-            )}
-            <button className="big-play" type="button" onClick={start} disabled={!songs.length}>
-              {resumeTitle ? "Resume" : "Start"}
-            </button>
-          </div>
-        </div>
-      ) : null}
       <audio ref={aRef} preload="auto" playsInline onEnded={() => api.current.onEnded("a")} onError={() => api.current.onError("a")} onTimeUpdate={() => api.current.onTime("a")} onPlaying={() => api.current.onPlaying("a")} />
       <audio ref={bRef} preload="auto" playsInline onEnded={() => api.current.onEnded("b")} onError={() => api.current.onError("b")} onTimeUpdate={() => api.current.onTime("b")} onPlaying={() => api.current.onPlaying("b")} />
     </main>
