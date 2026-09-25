@@ -43,6 +43,7 @@ export function addSong(input: { title: string; artist: string; url: string; pla
   return updateManifest((manifest) => {
     let song = manifest.songs.find((item) => item.url === input.url);
     if (!song) {
+      if (manifest.songs.length >= 30) throw new HttpError("The library can hold 30 tracks");
       song = {
         id: crypto.randomUUID(),
         title: title.slice(0, 200),

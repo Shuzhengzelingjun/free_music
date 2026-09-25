@@ -1,5 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { isAuthed } from "@/lib/auth";
+import { readManifest } from "@/lib/manifest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +15,11 @@ export async function POST(request: Request) {
       onBeforeGenerateToken: async (pathname) => {
         if (!(await isAuthed())) throw new Error("Not signed in");
         if (!pathname.startsWith("freemusic/audio/")) throw new Error("Invalid path");
+        const manifest = await readManifest();
+        if (manifest.songs.length >= 30) throw new Error("The library can hold 30 tracks");
         return {
           allowedContentTypes: ["audio/*", "video/mp4", "application/octet-stream"],
-          maximumSizeInBytes: 200 * 1024 * 1024,
+          maximumSizeInBytes: 10 * 1024 * 1024,
           addRandomSuffix: true,
         };
       },

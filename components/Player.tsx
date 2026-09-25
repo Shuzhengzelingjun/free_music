@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   STORE_NAME,
   buildOrder,
@@ -11,7 +12,13 @@ import type { PublicTrack } from "@/lib/types";
 
 type Slot = "a" | "b";
 
-export function Player({ playlistId }: { playlistId?: string }) {
+export function Player({
+  playlistId,
+  presentation = "full",
+}: {
+  playlistId?: string;
+  presentation?: "full" | "mini";
+}) {
   const aRef = useRef<HTMLAudioElement>(null);
   const bRef = useRef<HTMLAudioElement>(null);
   const activeSlot = useRef<Slot>("a");
@@ -125,7 +132,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
     } else {
       el.addEventListener("loadedmetadata", begin, { once: true });
     }
-    document.title = `${song.title} · ${STORE_NAME}`;
+    if (presentation === "full") document.title = `${song.title} · ${STORE_NAME}`;
   }
 
   function advance(delta: number) {
@@ -433,7 +440,28 @@ export function Player({ playlistId }: { playlistId?: string }) {
   }, [storageKey]);
 
   useEffect(() => {
-    if (!playing) {
+    if (presentation === "mini") {
+      document.title = `Manage · ${STORE_NAME}`;
+      return;
+    }
+    const song = songs.find((item) => item.id === order[pos]);
+    document.title = song ? `${song.title} · ${STORE_NAME}` : STORE_NAME;
+  }, [presentation, songs, order, pos]);
+
+  useEffect(() => {
+    if (!shouldPlayRef.current) return;
+    const el = slotEl(activeSlot.current);
+    if (!el?.src || !el.paused) return;
+    const resume = () => {
+      if (shouldPlayRef.current && el.paused) void el.play().catch(() => undefined);
+    };
+    resume();
+    const timer = window.setTimeout(resume, 0);
+    return () => window.clearTimeout(timer);
+  }, [presentation]);
+
+  useEffect(() => {
+    if (!playing || presentation === "mini") {
       document.body.classList.remove("player-idle");
       return;
     }
@@ -450,7 +478,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
       window.clearTimeout(timer);
       document.body.classList.remove("player-idle");
     };
-  }, [playing]);
+  }, [playing, presentation]);
 
   useEffect(() => {
     let lock: WakeLockSentinel | null = null;
@@ -506,14 +534,59 @@ export function Player({ playlistId }: { playlistId?: string }) {
   }
   const percent = progress.duration ? (progress.current / progress.duration) * 100 : 0;
 
-  if (loading) return <main className="booting">Preparing playlist</main>;
+  if (loading && presentation === "full") return <main className="booting">Preparing playlist</main>;
+
+  const audios = (
+    <>
+      <audio ref={aRef} preload="auto" playsInline onEnded={() => api.current.onEnded("a")} onError={() => api.current.onError("a")} onTimeUpdate={() => api.current.onTime("a")} onPlaying={() => api.current.onPlaying("a")} />
+      <audio ref={bRef} preload="auto" playsInline onEnded={() => api.current.onEnded("b")} onError={() => api.current.onError("b")} onTimeUpdate={() => api.current.onTime("b")} onPlaying={() => api.current.onPlaying("b")} />
+    </>
+  );
+
+  if (presentation === "mini") {
+    return (
+      <>
+        <div className="mini-player">
+          <div className="mini-progress" style={{ width: `${percent}%` }} />
+          <Link className="mini-meta" href="/">
+            <strong>{current?.title || (loading ? "Preparing playlist" : "No music yet")}</strong>
+            <span>{current?.artist || playlistName || STORE_NAME}</span>
+          </Link>
+          <div className="mini-controls">
+            <button className="icon-btn" type="button" aria-label="Previous" onClick={prev} disabled={!songs.length}>
+              <PrevIcon />
+            </button>
+            <button
+              className="play-btn mini-play"
+              type="button"
+              aria-label={playing ? "Pause" : "Play"}
+              disabled={!songs.length}
+              onClick={() => (started ? setWantPlay(!playing) : start())}
+            >
+              {playing ? <PauseIcon /> : <PlayIcon />}
+            </button>
+            <button className="icon-btn" type="button" aria-label="Next" onClick={() => advance(1)} disabled={!songs.length}>
+              <NextIcon />
+            </button>
+          </div>
+        </div>
+        {audios}
+      </>
+    );
+  }
 
   return (
+    <>
     <main className="player" style={{ ["--glow" as string]: String(18 + (pos % 6) * 4) }}>
       <header className="topbar">
         <div className="brand-block">
-          <p className="eyebrow">{playlistName || "Waiting for a playlist"}</p>
-          <h1 className="brand">{STORE_NAME}</h1>
+          <div>
+          <p className="eyebrow">
+            {playlistName || "Waiting for a playlist"}
+            <span className="test-mark">Test project</span>
+          </p>
+          <h1 className="brand"><Link className="wordmark" href="/">{STORE_NAME}</Link></h1>
+          </div>
         </div>
         <div className="clock-block">
           <div className="clock">{clock}</div>
@@ -522,7 +595,7 @@ export function Player({ playlistId }: { playlistId?: string }) {
         <div className="live-pill">
           <span className={playing ? "dot on" : "dot"} />
           {playing ? "Playing" : started ? "Paused" : "Not started"}
-          <a className="admin-link" href="/admin">Manage</a>
+          <Link className="admin-link" href="/admin">Manage</Link>
           <button
             className="admin-link"
             type="button"
@@ -649,9 +722,9 @@ export function Player({ playlistId }: { playlistId?: string }) {
           )}
         </aside>
       </section>
-      <audio ref={aRef} preload="auto" playsInline onEnded={() => api.current.onEnded("a")} onError={() => api.current.onError("a")} onTimeUpdate={() => api.current.onTime("a")} onPlaying={() => api.current.onPlaying("a")} />
-      <audio ref={bRef} preload="auto" playsInline onEnded={() => api.current.onEnded("b")} onError={() => api.current.onError("b")} onTimeUpdate={() => api.current.onTime("b")} onPlaying={() => api.current.onPlaying("b")} />
     </main>
+    {audios}
+    </>
   );
 }
 

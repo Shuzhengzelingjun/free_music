@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Outfit } from "next/font/google";
+import { AppShell } from "@/components/AppShell";
 import { STORE_NAME } from "@/lib/audio";
 import "./globals.css";
 
@@ -20,7 +21,8 @@ export const metadata: Metadata = {
     default: STORE_NAME,
     template: `%s · ${STORE_NAME}`,
   },
-  description: "Background music for the store. Keep this page open and it keeps playing.",
+  description: "Test project for store background music. Keep this page open and it keeps playing.",
+  robots: { index: false, follow: false },
   applicationName: STORE_NAME,
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.svg" },
@@ -41,7 +43,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${display.variable} ${sans.variable}`}>{children}</body>
+      <body className={`${display.variable} ${sans.variable}`}>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

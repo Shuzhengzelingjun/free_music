@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { upload } from "@vercel/blob/client";
 import {
   STORE_NAME,
@@ -107,15 +108,21 @@ export function AdminPanel() {
   async function onFiles(list: FileList | File[]) {
     if (!library?.persistent) return;
     const files = Array.from(list);
+    let count = library.manifest.songs.length;
     for (const file of files) {
       if (!isAudioFilename(file.name)) {
         notify(`${file.name} is not a supported audio file`);
         continue;
       }
-      if (file.size > 200 * 1024 * 1024) {
-        notify(`${file.name} is over 200MB`);
+      if (file.size > 10 * 1024 * 1024) {
+        notify(`${file.name} is over 10MB`);
         continue;
       }
+      if (count >= 30) {
+        notify("The library can hold 30 tracks");
+        continue;
+      }
+      count += 1;
       const jobId = `${file.name}-${Date.now()}`;
       setJobs((current) => [...current, { id: jobId, name: file.name, progress: 0, status: "Uploading" }]);
       try {
@@ -229,19 +236,26 @@ export function AdminPanel() {
   return (
     <main className="admin">
       <header className="admin-top">
-        <div>
-          <p className="eyebrow">Playlists</p>
-          <h1>Manage</h1>
+        <div className="brand-block">
+          <Link className="back-home" href="/" aria-label="Home">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Link>
+          <div>
+            <p className="eyebrow">Playlists <span className="test-mark">Test project</span></p>
+            <h1>Manage</h1>
+          </div>
         </div>
         <div className="admin-actions row">
           {library?.persistent ? <span className="badge">Cloud storage</span> : null}
-          <a className="ghost" href="/" target="_blank" rel="noreferrer">Open player</a>
+          <Link className="ghost" href="/">Open player</Link>
           <button
             className="ghost"
             type="button"
             onClick={async () => {
               await fetch("/api/admin/session", { method: "DELETE" });
-              setAuthed(false);
+              window.location.reload();
             }}
           >
             Log out
@@ -322,8 +336,8 @@ export function AdminPanel() {
               }}
             >
               <strong>Upload tracks</strong>
-              <p>Drop mp3, m4a, or wav files here, or click to choose. You can upload many at once. Name a file “Artist - Title” and those fields fill in automatically.</p>
-              <p className="quiet">Only upload music you have the right to play in the store. Track links are public, so anyone with the link can play them.</p>
+              <p>Drop mp3, m4a, or wav files here, or click to choose. You can upload many at once. Name a file “Artist - Title” and those fields fill in automatically. Each file must be under 10MB, and the library holds 30 tracks.</p>
+              <p className="quiet">Test project. Only upload music you have the right to play. Track links are public, so anyone with the link can open them.</p>
               {manifest?.playlists.length ? (
                 <label className="quiet">
                   Upload to
