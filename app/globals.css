@@ -415,7 +415,47 @@ button.admin-link { background: none; border: 0; padding: 0; }
 
 @media (max-width: 980px) {
   .topbar, .admin-top, .rule { padding-left: 20px; padding-right: 20px; }
-  .topbar { align-items: flex-start; padding-top: 16px; }
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand clock"
+      "status status";
+    align-items: start;
+    gap: 10px 12px;
+    padding-top: 16px;
+  }
+  .topbar .brand-block { grid-area: brand; align-items: flex-start; }
+  .topbar .clock-block { grid-area: clock; }
+  .topbar .live-pill {
+    grid-area: status;
+    justify-self: start;
+    max-width: 100%;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+  }
+  .admin-top {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    padding-top: 16px;
+  }
+  .admin-top .brand-block { flex: 1 1 180px; min-width: 0; }
+  .admin-top .admin-actions { flex: 1 1 100%; }
+  .eyebrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.08em;
+  }
+  .test-mark { margin-left: 0; }
+  .wordmark, .brand, .admin-top h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .back-home { width: 36px; height: 36px; }
   .rule { margin-left: 20px; margin-right: 20px; }
   .stage {
     grid-template-columns: 1fr;
