@@ -1,20 +1,17 @@
 import { del, list, put } from "@vercel/blob";
-import { mkdir, rename, unlink, writeFile, readFile } from "fs/promises";
-import path from "path";
 import { emptyManifest, normalizeManifest } from "@/lib/audio";
 import type { Manifest } from "@/lib/types";
 
 const MANIFEST_PREFIX = "freemusic/manifests/";
-const localFile = path.join(process.cwd(), "data", "manifest.json");
 
 let queue: Promise<unknown> = Promise.resolve();
 
-export function storageMode(): "blob" | "local" {
-  return process.env.BLOB_READ_WRITE_TOKEN ? "blob" : "local";
+export function blobConfigured() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
 export function persistentStorage() {
-  return storageMode() === "blob" || process.env.NODE_ENV !== "production";
+  return blobConfigured();
 }
 
 export function readManifest() {
@@ -44,44 +41,22 @@ export function updateManifest(mutator: (manifest: Manifest) => void) {
 }
 
 export async function deleteAudio(url: string) {
-  if (url.startsWith("/uploads/")) {
-    const name = path.basename(url);
-    if (!/^[a-zA-Z0-9._-]+$/.test(name)) return;
-    await unlink(path.join(process.cwd(), "public", "uploads", name)).catch(() => undefined);
-    return;
-  }
-  if (url.includes(".blob.vercel-storage.com") && process.env.BLOB_READ_WRITE_TOKEN) {
-    await del(url).catch((error) => {
-      console.error("delete blob failed", error);
-    });
-  }
+  if (!url.includes(".blob.vercel-storage.com") || !blobConfigured()) return;
+  await del(url).catch((error) => {
+    console.error("delete blob failed", error);
+  });
 }
 
 async function readFresh(): Promise<Manifest> {
-  if (storageMode() === "blob") return readBlobManifest();
-  return readLocalManifest();
+  if (!blobConfigured()) return emptyManifest();
+  return readBlobManifest();
 }
 
 async function writeManifest(manifest: Manifest) {
-  if (storageMode() === "blob") {
-    await writeBlobManifest(manifest);
-    return;
+  if (!blobConfigured()) {
+    throw new Error("Connect Vercel Blob storage first, or playlists will not be saved.");
   }
-  await mkdir(path.dirname(localFile), { recursive: true });
-  const temporary = `${localFile}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify(manifest, null, 2));
-  await rename(temporary, localFile);
-}
-
-async function readLocalManifest(): Promise<Manifest> {
-  try {
-    const raw = await readFile(localFile, "utf8");
-    return normalizeManifest(JSON.parse(raw));
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return emptyManifest();
-    throw error;
-  }
+  await writeBlobManifest(manifest);
 }
 
 async function readBlobManifest(): Promise<Manifest> {

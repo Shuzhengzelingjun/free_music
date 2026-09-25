@@ -1,7 +1,7 @@
 import { isAuthed } from "@/lib/auth";
 import { jsonError } from "@/lib/http";
 import { applyAction } from "@/lib/library";
-import { persistentStorage, readManifest, storageMode } from "@/lib/manifest";
+import { persistentStorage, readManifest } from "@/lib/manifest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function GET() {
   const manifest = await readManifest();
   return Response.json({
     manifest,
-    storage: storageMode(),
+    storage: "blob",
     persistent: persistentStorage(),
   });
 }

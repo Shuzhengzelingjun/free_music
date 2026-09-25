@@ -120,9 +120,7 @@ export function AdminPanel() {
       setJobs((current) => [...current, { id: jobId, name: file.name, progress: 0, status: "Uploading" }]);
       try {
         const parsed = parseTrackName(file.name);
-        const manifest = library.storage === "blob"
-          ? await uploadBlob(file, parsed, jobId)
-          : await uploadLocal(file, parsed, jobId);
+        const manifest = await uploadBlob(file, parsed, jobId);
         setLibrary((current) => (current ? { ...current, manifest } : current));
         if (!uploadTo) {
           const created = manifest.playlists[manifest.playlists.length - 1];
@@ -138,39 +136,6 @@ export function AdminPanel() {
         notify(message);
       }
     }
-  }
-
-  function uploadLocal(file: File, parsed: { title: string; artist: string }, jobId: string) {
-    const form = new FormData();
-    form.set("file", file);
-    form.set("title", parsed.title);
-    form.set("artist", parsed.artist);
-    if (uploadTo) form.set("playlistId", uploadTo);
-    return new Promise<Manifest>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/admin/upload");
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable || event.total <= 0) return;
-        const progress = Math.min(99, Math.round((event.loaded / event.total) * 100));
-        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress } : job)));
-      };
-      xhr.onload = () => {
-        let data: { error?: string; manifest?: Manifest } = {};
-        try {
-          data = JSON.parse(xhr.responseText) as { error?: string; manifest?: Manifest };
-        } catch {
-          reject(new Error("Upload failed"));
-          return;
-        }
-        if (xhr.status < 200 || xhr.status >= 300 || !data.manifest) {
-          reject(new Error(data.error || "Upload failed"));
-          return;
-        }
-        resolve(data.manifest);
-      };
-      xhr.onerror = () => reject(new Error("Upload failed"));
-      xhr.send(form);
-    });
   }
 
   async function uploadBlob(file: File, parsed: { title: string; artist: string }, jobId: string) {
@@ -269,7 +234,7 @@ export function AdminPanel() {
           <h1>Manage</h1>
         </div>
         <div className="admin-actions row">
-          <span className="badge">{library?.storage === "blob" ? "Cloud storage" : "Local storage"}</span>
+          {library?.persistent ? <span className="badge">Cloud storage</span> : null}
           <a className="ghost" href="/" target="_blank" rel="noreferrer">Open player</a>
           <button
             className="ghost"
@@ -292,12 +257,6 @@ export function AdminPanel() {
             <li>Redeploy. Uploaded tracks will stay, and the player can loop them.</li>
           </ol>
         </section>
-      ) : null}
-
-      {library?.persistent && library.storage === "local" ? (
-        <p className="quiet" style={{ padding: "12px 28px 0" }}>
-          Tracks are saved on this computer for local preview. Connect Blob when you deploy to Vercel so they are stored in the cloud.
-        </p>
       ) : null}
 
       <div className="admin-shell">

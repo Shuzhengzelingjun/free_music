@@ -30,6 +30,6 @@ export type PublicPlaylistResponse = {
 
 export type LibraryResponse = {
   manifest: Manifest;
-  storage: "blob" | "local";
+  storage: "blob";
   persistent: boolean;
 };
