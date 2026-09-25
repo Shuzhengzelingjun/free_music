@@ -122,7 +122,7 @@ export function AdminPanel() {
         const parsed = parseTrackName(file.name);
         const manifest = library.storage === "blob"
           ? await uploadBlob(file, parsed, jobId)
-          : await uploadLocal(file, parsed);
+          : await uploadLocal(file, parsed, jobId);
         setLibrary((current) => (current ? { ...current, manifest } : current));
         if (!uploadTo) {
           const created = manifest.playlists[manifest.playlists.length - 1];
@@ -140,29 +140,55 @@ export function AdminPanel() {
     }
   }
 
-  async function uploadLocal(file: File, parsed: { title: string; artist: string }) {
+  function uploadLocal(file: File, parsed: { title: string; artist: string }, jobId: string) {
     const form = new FormData();
     form.set("file", file);
     form.set("title", parsed.title);
     form.set("artist", parsed.artist);
     if (uploadTo) form.set("playlistId", uploadTo);
-    const response = await fetch("/api/admin/upload", { method: "POST", body: form });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Upload failed");
-    return data.manifest as Manifest;
+    return new Promise<Manifest>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/admin/upload");
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || event.total <= 0) return;
+        const progress = Math.min(99, Math.round((event.loaded / event.total) * 100));
+        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress } : job)));
+      };
+      xhr.onload = () => {
+        let data: { error?: string; manifest?: Manifest } = {};
+        try {
+          data = JSON.parse(xhr.responseText) as { error?: string; manifest?: Manifest };
+        } catch {
+          reject(new Error("Upload failed"));
+          return;
+        }
+        if (xhr.status < 200 || xhr.status >= 300 || !data.manifest) {
+          reject(new Error(data.error || "Upload failed"));
+          return;
+        }
+        resolve(data.manifest);
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.send(form);
+    });
   }
 
   async function uploadBlob(file: File, parsed: { title: string; artist: string }, jobId: string) {
     const extension = extensionOf(file.name);
     const pathname = `freemusic/audio/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${extension}`;
-    const typed = new File([file], pathname.split("/").pop() || file.name, { type: contentTypeFor(extension) });
-    const blob = await upload(pathname, typed, {
+    const blob = await upload(pathname, file, {
       access: "public",
       handleUploadUrl: "/api/upload",
       contentType: contentTypeFor(extension),
       multipart: file.size > 8 * 1024 * 1024,
-      onUploadProgress: ({ percentage }) => {
-        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress: Math.round(percentage) } : job)));
+      onUploadProgress: ({ loaded, total, percentage }) => {
+        const next = Number.isFinite(percentage) && percentage > 0
+          ? percentage
+          : total > 0
+            ? (loaded / total) * 100
+            : 0;
+        const progress = Math.min(99, Math.round(next));
+        setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, progress } : job)));
       },
     });
     const response = await fetch("/api/admin/library", {
@@ -365,7 +391,12 @@ export function AdminPanel() {
               {jobs.length ? (
                 <div className="jobs">
                   {jobs.slice(-4).map((job) => (
-                    <div key={job.id}>{job.name} · {job.status}{job.status === "Uploading" ? ` ${job.progress}%` : ""}</div>
+                    <div className="job" key={job.id}>
+                      <div>{job.name} · {job.status}{job.status === "Uploading" ? ` ${job.progress}%` : ""}</div>
+                      {job.status === "Uploading" ? (
+                        <div className="job-bar" aria-hidden="true"><span style={{ width: `${job.progress}%` }} /></div>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               ) : null}

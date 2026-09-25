@@ -290,6 +290,9 @@ button.admin-link { background: none; border: 0; padding: 0; }
 .upload p { margin: 8px 0; color: var(--muted); }
 .upload input { display: none; }
 .jobs { margin: 8px 0 0; color: var(--faint); font-size: 13px; }
+.job { margin-top: 8px; }
+.job-bar { height: 4px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: var(--line); }
+.job-bar span { display: block; height: 100%; background: var(--accent); }
 .song-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
