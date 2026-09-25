@@ -16,7 +16,7 @@ export async function POST(request: Request) {
         if (!pathname.startsWith("freemusic/audio/")) throw new Error("Invalid path");
         return {
           allowedContentTypes: ["audio/*", "video/mp4", "application/octet-stream"],
-          maximumSizeInBytes: 100 * 1024 * 1024,
+          maximumSizeInBytes: 200 * 1024 * 1024,
           addRandomSuffix: true,
         };
       },

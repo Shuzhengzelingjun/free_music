@@ -112,8 +112,8 @@ export function AdminPanel() {
         notify(`${file.name} is not a supported audio file`);
         continue;
       }
-      if (file.size > 100 * 1024 * 1024) {
-        notify(`${file.name} is over 100MB`);
+      if (file.size > 200 * 1024 * 1024) {
+        notify(`${file.name} is over 200MB`);
         continue;
       }
       const jobId = `${file.name}-${Date.now()}`;

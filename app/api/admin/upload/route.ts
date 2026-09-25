@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_BYTES = 100 * 1024 * 1024;
+const MAX_BYTES = 200 * 1024 * 1024;
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
   if (!value || typeof value === "string") return false;
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Only mp3, m4a, wav, aac, ogg, and flac are supported" }, { status: 400 });
     }
     if (file.size <= 0 || file.size > MAX_BYTES) {
-      return Response.json({ error: "File must be under 100MB" }, { status: 400 });
+      return Response.json({ error: "File must be under 200MB" }, { status: 400 });
     }
     const extension = extensionOf(file.name);
     const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}${extension}`;
