@@ -8,6 +8,7 @@ import {
   formatClock,
   formatElapsed,
 } from "@/lib/audio";
+import { prepareDeviceAudio, retainDeviceAudio } from "@/lib/audioCache";
 import type { PublicTrack } from "@/lib/types";
 
 type Slot = "a" | "b";
@@ -63,6 +64,7 @@ export function Player({
   const [progress, setProgress] = useState({ current: 0, duration: 0 });
   const [volume, setVolume] = useState(0.85);
   const [issue, setIssue] = useState("");
+  const [deviceReady, setDeviceReady] = useState(false);
   const [clock, setClock] = useState("--:--");
   const [elapsedLabel, setElapsedLabel] = useState("0 sec");
 
@@ -338,6 +340,7 @@ export function Player({
         const previousId = orderRef.current[posRef.current];
         songsRef.current = list;
         setSongs(list);
+        retainDeviceAudio(list.map((song) => song.url));
         setPlaylistName(data.playlist?.name || "");
         if (Boolean(playlistId) && !data.playlist) setIssue("Playlist not found");
         setLoading(false);
@@ -372,7 +375,17 @@ export function Player({
   }, [playlistId]);
 
   useEffect(() => {
-    if (startedRef.current || !songs.length) return;
+    let stop = false;
+    prepareDeviceAudio().finally(() => {
+      if (!stop) setDeviceReady(true);
+    });
+    return () => {
+      stop = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!deviceReady || startedRef.current || !songs.length) return;
     const raw = localStorage.getItem(storageKey);
     if (raw) {
       try {
@@ -385,7 +398,7 @@ export function Player({
       }
     }
     start();
-  }, [songs, storageKey]);
+  }, [deviceReady, songs, storageKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
