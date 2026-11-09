@@ -34,6 +34,7 @@ export function Player({
   const volumeRef = useRef(0.85);
   const playToken = useRef(0);
   const moving = useRef(false);
+  const metadataCleanup = useRef<(() => void) | null>(null);
   const failCount = useRef(0);
   const retryAfter = useRef(0);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,22 +158,44 @@ export function Player({
     catch { setBuffering(false); setIssue("This position is not available yet. Try again."); }
   }
 
+  function cancelSeek() {
+    if (seekTimer.current) clearTimeout(seekTimer.current);
+    seekTimer.current = null;
+    draftSeek.current = null;
+    seekGrace.current = 0;
+    setSeekPreview(null);
+    setBuffering(false);
+  }
+
   function previewSeek(time: number) {
     draftSeek.current = time;
     setSeekPreview(time);
     if (seekTimer.current) clearTimeout(seekTimer.current);
+    const token = playToken.current;
+    const songId = orderRef.current[posRef.current];
     seekTimer.current = setTimeout(() => {
+      if (token !== playToken.current || songId !== orderRef.current[posRef.current]) return;
+      seekTimer.current = null;
       seekTo(time); draftSeek.current = null; setSeekPreview(null);
     }, 200);
   }
 
-  useEffect(() => () => { if (seekTimer.current) clearTimeout(seekTimer.current); }, []);
+  useEffect(() => () => {
+    ++playToken.current;
+    if (seekTimer.current) clearTimeout(seekTimer.current);
+    metadataCleanup.current?.();
+  }, []);
 
   function playCurrent(preferIdle: boolean, seekTo?: number) {
     const song = songsRef.current.find((item) => item.id === orderRef.current[posRef.current]);
     if (!song) return;
-    if (seekTimer.current) clearTimeout(seekTimer.current);
-    draftSeek.current = null; setSeekPreview(null); setBuffered([]); setBuffering(false);
+    // Invalidate callbacks before pausing/reloading either audio element.
+    const token = ++playToken.current;
+    metadataCleanup.current?.();
+    metadataCleanup.current = null;
+    cancelSeek();
+    retryAfter.current = 0;
+    setBuffered([]);
     setProgress({current:0,duration:0});
     let slot = activeSlot.current;
     const idleSlot = other(slot);
@@ -185,9 +208,10 @@ export function Player({
     const el = slotEl(slot);
     slotEl(other(slot))?.pause();
     if (!el) return;
-    const token = ++playToken.current;
     const begin = () => {
-      if (token !== playToken.current) return;
+      if (token !== playToken.current || el.dataset.songId !== song.id) return;
+      metadataCleanup.current?.();
+      metadataCleanup.current = null;
       if (seekTo != null && el.duration && Number.isFinite(el.duration)) {
         el.currentTime = Math.min(Math.max(seekTo, 0), Math.max(0, el.duration - 0.25));
       }
@@ -201,20 +225,30 @@ export function Player({
         setPlaying(true);
         setIssue("");
       }).catch((error: unknown) => {
-        if (token !== playToken.current) return;
+        if (token !== playToken.current || !shouldPlayRef.current) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         if (error instanceof DOMException && error.name === "NotAllowedError") shouldPlayRef.current = false;
         setPlaying(false);
         setIssue("Playback could not start. Press Play to retry.");
       });
     };
-    if (el.dataset.songId !== song.id) {
+    const listenForMetadata = () => {
+      el.addEventListener("loadedmetadata", begin, { once: true });
+      metadataCleanup.current = () => el.removeEventListener("loadedmetadata", begin);
+    };
+    if (el.dataset.songId !== song.id || el.seeking || el.error) {
+      // load() aborts any outstanding seek/play request from the previous track.
+      el.pause();
+      listenForMetadata();
       el.dataset.songId = song.id;
       el.src = song.url;
-      el.addEventListener("loadedmetadata", begin, { once: true });
+      el.load();
     } else if (el.readyState >= 1) {
+      // A preloaded/reused slot must start this track at its beginning.
+      if (seekTo == null) el.currentTime = 0;
       begin();
     } else {
-      el.addEventListener("loadedmetadata", begin, { once: true });
+      listenForMetadata();
     }
     if (presentation === "full") document.title = `${song.title} · ${STORE_NAME}`;
   }
@@ -241,12 +275,6 @@ export function Player({
   }
 
   function prev() {
-    const el = slotEl(activeSlot.current);
-    if (el && el.currentTime > 3) {
-      el.currentTime = 0;
-      setProgress((current) => ({ ...current, current: 0 }));
-      return;
-    }
     advance(-1);
   }
 
@@ -262,7 +290,10 @@ export function Player({
     }
     if (!el?.dataset.songId) playCurrent(false);
     else {
+      const token = playToken.current;
       void el.play().catch((error: unknown) => {
+        if (token !== playToken.current || !shouldPlayRef.current) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
         if (error instanceof DOMException && error.name === "NotAllowedError") shouldPlayRef.current = false;
         setPlaying(false);
         setIssue("Playback could not start. Press Play to retry.");
@@ -356,7 +387,9 @@ export function Player({
     setPlaying(true);
     setBuffering(false);
     setIssue("");
+    const token = playToken.current;
     window.setTimeout(() => {
+      if (token !== playToken.current) return;
       const el = slotEl(slot);
       if (slot === activeSlot.current && el && !el.paused) failCount.current = 0;
     }, 800);
