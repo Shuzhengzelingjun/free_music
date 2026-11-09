@@ -11,6 +11,8 @@ import {
 import { prepareDeviceAudio, retainDeviceAudio } from "@/lib/audioCache";
 import type { PublicTrack } from "@/lib/types";
 
+type Download = { loaded: number; total: number; state: "pending" | "downloading" | "complete" | "failed" };
+
 type Slot = "a" | "b";
 
 export function Player({
@@ -33,6 +35,10 @@ export function Player({
   const playToken = useRef(0);
   const moving = useRef(false);
   const failCount = useRef(0);
+  const retryAfter = useRef(0);
+  const seekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekGrace = useRef(0);
+  const draftSeek = useRef<number | null>(null);
   const updatedAtRef = useRef("");
   const resumeRef = useRef<{ songId: string; time: number } | null>(null);
   const lastMedia = useRef(0);
@@ -53,6 +59,8 @@ export function Player({
     onPlaying: (_slot: Slot) => {},
   });
 
+  const [mobileQueue, setMobileQueue] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
   const [songs, setSongs] = useState<PublicTrack[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [pos, setPos] = useState(0);
@@ -62,8 +70,37 @@ export function Player({
   const [started, setStarted] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [progress, setProgress] = useState({ current: 0, duration: 0 });
+  const [downloads, setDownloads] = useState<Record<string, Download>>({});
+  const [buffering, setBuffering] = useState(false);
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const [buffered, setBuffered] = useState<Array<[number, number]>>([]);
   const [volume, setVolume] = useState(0.85);
   const [issue, setIssue] = useState("");
+  const [role, setRole] = useState("store");
+  const [cacheStatus, setCacheStatus] = useState("Preparing offline music");
+  const [sessionIssue, setSessionIssue] = useState("");
+  const [renewUser, setRenewUser] = useState("");
+  const [renewPassword, setRenewPassword] = useState("");
+  const [renewBusy, setRenewBusy] = useState(false);
+
+  async function signInAgain(event: React.FormEvent) {
+    event.preventDefault();
+    setRenewBusy(true);
+    try {
+      const response = await fetch("/api/admin/session", {
+        method:"POST", headers:{"content-type":"application/json"},
+        body:JSON.stringify({username:renewUser,password:renewPassword}),
+        signal:AbortSignal.timeout(15000),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Login failed");
+      setRole(data.role);
+      void fetch("/api/admin/session", {cache:"no-store"}).catch(() => undefined);
+      setSessionIssue("");
+      setRenewPassword("");
+    } catch (error) { setSessionIssue(error instanceof Error ? error.message : "Login failed"); }
+    finally { setRenewBusy(false); }
+  }
   const [deviceReady, setDeviceReady] = useState(false);
   const [clock, setClock] = useState("--:--");
   const [elapsedLabel, setElapsedLabel] = useState("0 sec");
@@ -95,9 +132,48 @@ export function Player({
     idle.preload = "auto";
   }
 
+  function readBuffer(slot: Slot) {
+    if (slot !== activeSlot.current) return;
+    const el = slotEl(slot);
+    if (!el) return;
+    setBuffered(Array.from({length:el.buffered.length}, (_, i) => [el.buffered.start(i), el.buffered.end(i)] as [number,number]));
+    if (Number.isFinite(el.duration)) setProgress(p => ({...p,duration:el.duration}));
+  }
+
+  function seekTo(time: number) {
+    const el = slotEl(activeSlot.current);
+    const song = songsRef.current.find(s => s.id === orderRef.current[posRef.current]);
+    if (!el || !song || !Number.isFinite(el.duration)) return;
+    const target = Math.min(Math.max(time,0), Math.max(0,el.duration - 0.1));
+    const locallyBuffered = Array.from({length:el.buffered.length}, (_, i) => i).some(i => target >= el.buffered.start(i) && target < el.buffered.end(i));
+    if (!navigator.onLine && downloads[song.url]?.state !== "complete" && !locallyBuffered) {
+      setIssue("This position is not cached. Reconnect to seek here.");
+      return;
+    }
+    seekGrace.current = Date.now() + 30000;
+    setBuffering(true);
+    setIssue("");
+    try { el.currentTime = target; setProgress(p => ({...p,current:target})); }
+    catch { setBuffering(false); setIssue("This position is not available yet. Try again."); }
+  }
+
+  function previewSeek(time: number) {
+    draftSeek.current = time;
+    setSeekPreview(time);
+    if (seekTimer.current) clearTimeout(seekTimer.current);
+    seekTimer.current = setTimeout(() => {
+      seekTo(time); draftSeek.current = null; setSeekPreview(null);
+    }, 200);
+  }
+
+  useEffect(() => () => { if (seekTimer.current) clearTimeout(seekTimer.current); }, []);
+
   function playCurrent(preferIdle: boolean, seekTo?: number) {
     const song = songsRef.current.find((item) => item.id === orderRef.current[posRef.current]);
     if (!song) return;
+    if (seekTimer.current) clearTimeout(seekTimer.current);
+    draftSeek.current = null; setSeekPreview(null); setBuffered([]); setBuffering(false);
+    setProgress({current:0,duration:0});
     let slot = activeSlot.current;
     const idleSlot = other(slot);
     const idle = slotEl(idleSlot);
@@ -115,6 +191,7 @@ export function Player({
       if (seekTo != null && el.duration && Number.isFinite(el.duration)) {
         el.currentTime = Math.min(Math.max(seekTo, 0), Math.max(0, el.duration - 0.25));
       }
+      if (el.ended) el.currentTime = 0;
       el.volume = volumeRef.current;
       armNext();
       if (!shouldPlayRef.current) return;
@@ -123,10 +200,11 @@ export function Player({
         failCount.current = 0;
         setPlaying(true);
         setIssue("");
-      }).catch(() => {
+      }).catch((error: unknown) => {
         if (token !== playToken.current) return;
-        shouldPlayRef.current = false;
+        if (error instanceof DOMException && error.name === "NotAllowedError") shouldPlayRef.current = false;
         setPlaying(false);
+        setIssue("Playback could not start. Press Play to retry.");
       });
     };
     if (el.dataset.songId !== song.id) {
@@ -184,9 +262,10 @@ export function Player({
     }
     if (!el?.dataset.songId) playCurrent(false);
     else {
-      void el.play().catch(() => {
-        shouldPlayRef.current = false;
+      void el.play().catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "NotAllowedError") shouldPlayRef.current = false;
         setPlaying(false);
+        setIssue("Playback could not start. Press Play to retry.");
       });
     }
   }
@@ -206,7 +285,18 @@ export function Player({
     playCurrent(false, seek);
   }
 
+  function toggleShuffle() {
+    const next = !shuffleRef.current;
+    shuffleRef.current = next;
+    setShuffle(next);
+    localStorage.setItem("fm-shuffle", next ? "1" : "0");
+    const currentId = orderRef.current[posRef.current];
+    commitOrder(buildOrder(songsRef.current, next, currentId), 0);
+    if (startedRef.current) armNext();
+  }
+
   function playFromQueue(id: string) {
+    setMobileQueue(false);
     const index = orderRef.current.indexOf(id);
     if (index < 0) return;
     startedRef.current = true;
@@ -231,9 +321,9 @@ export function Player({
     if (!el?.dataset.songId || !startedRef.current) return;
     failCount.current += 1;
     if (failCount.current >= Math.max(songsRef.current.length, 1)) {
-      shouldPlayRef.current = false;
       setPlaying(false);
-      setIssue("These tracks can't be played right now");
+      retryAfter.current = Date.now() + 30000;
+      setIssue("Tracks unavailable. Retrying automatically.");
       return;
     }
     setIssue("This track couldn't be opened. Skipping to the next one.");
@@ -263,11 +353,41 @@ export function Player({
   };
   api.current.onPlaying = (slot) => {
     if (slot !== activeSlot.current) return;
+    setPlaying(true);
+    setBuffering(false);
+    setIssue("");
     window.setTimeout(() => {
       const el = slotEl(slot);
       if (slot === activeSlot.current && el && !el.paused) failCount.current = 0;
     }, 800);
   };
+
+  useEffect(() => {
+    const renew = async () => {
+      try {
+        const response = await fetch("/api/admin/session", {cache:"no-store", signal:AbortSignal.timeout(10000)});
+        const data = await response.json();
+        if (data.ok) { setRole(data.role); setSessionIssue(""); }
+        else setSessionIssue("Please sign in again. Existing music will continue.");
+      } catch { /* offline sessions keep playing */ }
+    };
+    const online = () => { retryAfter.current = 0; void renew(); retainDeviceAudio(songsRef.current.map(song => song.url)); };
+    const message = (event: MessageEvent) => {
+      if (event.data?.type === "track-download") {
+        const d = event.data;
+        setDownloads(previous => ({...previous,[d.url]:{loaded:d.loaded,total:d.total,state:d.state}}));
+        return;
+      }
+      if (event.data?.type !== "cache-progress") return;
+      const d = event.data;
+      setCacheStatus(d.ready ? `Offline ready · ${d.done} tracks` : `${d.failed ? "Download incomplete; will retry" : "Downloading"} · ${d.done}/${d.total}`);
+    };
+    void renew();
+    const timer = window.setInterval(() => void renew(), 60 * 60 * 1000);
+    window.addEventListener("online", online);
+    navigator.serviceWorker?.addEventListener("message", message);
+    return () => { window.clearInterval(timer); window.removeEventListener("online", online); navigator.serviceWorker?.removeEventListener("message", message); };
+  }, []);
 
   useEffect(() => {
     const rawVolume = localStorage.getItem("fm-volume");
@@ -321,10 +441,10 @@ export function Player({
     async function load(first: boolean) {
       try {
         const query = playlistId ? `?id=${encodeURIComponent(playlistId)}` : "";
-        const response = await fetch(`/api/playlist${query}`, { cache: "no-store" });
+        const response = await fetch(`/api/playlist${query}`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
         if (stop) return;
         if (response.status === 401) {
-          window.location.reload();
+          setSessionIssue("Login needs renewal. Music will continue; sign in again when convenient.");
           return;
         }
         if (response.status === 404) {
@@ -334,7 +454,7 @@ export function Player({
         }
         if (!response.ok) throw new Error("load failed");
         const data = await response.json();
-        if (!first && data.updatedAt === updatedAtRef.current) return;
+        if (!first && data.updatedAt === updatedAtRef.current) { retainDeviceAudio(songsRef.current.map(song => song.url)); return; }
         updatedAtRef.current = data.updatedAt || "";
         const list = (data.songs || []) as PublicTrack[];
         const previousId = orderRef.current[posRef.current];
@@ -345,6 +465,11 @@ export function Player({
         if (Boolean(playlistId) && !data.playlist) setIssue("Playlist not found");
         setLoading(false);
         const ids = list.map((song) => song.id);
+        if (!ids.length) {
+          aRef.current?.pause(); bRef.current?.pause();
+          setPlaying(false); commitOrder([], 0);
+          return;
+        }
         const idSet = new Set(ids);
         if (!startedRef.current) {
           commitOrder(ids, 0);
@@ -376,7 +501,7 @@ export function Player({
 
   useEffect(() => {
     let stop = false;
-    prepareDeviceAudio().finally(() => {
+    prepareDeviceAudio().catch(() => { setCacheStatus("Offline storage unavailable on this device"); }).finally(() => {
       if (!stop) setDeviceReady(true);
     });
     return () => {
@@ -442,9 +567,14 @@ export function Player({
         lastMove = Date.now();
         return;
       }
-      if (Date.now() - lastMove > 8000 && el.paused) {
-        setIssue("Playback stalled. Trying to resume.");
-        void el.play().catch(() => undefined);
+      if (Date.now() - lastMove > 15000 && Date.now() >= retryAfter.current && Date.now() >= seekGrace.current && draftSeek.current === null) {
+        lastMove = Date.now();
+        setPlaying(false);
+        setIssue("Playback stalled. Retrying another track.");
+        el.removeAttribute("src");
+        delete el.dataset.songId;
+        el.load();
+        api.current.next();
       }
     }, 2000);
     const onVis = () => {
@@ -547,19 +677,32 @@ export function Player({
   }, [songs, order, pos, playing, playlistName]);
 
   const current = songs.find((song) => song.id === order[pos]) || null;
-  const queue: Array<PublicTrack & { lead: boolean }> = [];
-  for (let step = 1; step < order.length && queue.length < 12; step += 1) {
-    const song = songs.find((item) => item.id === order[(pos + step) % order.length]);
-    if (song) queue.push({ ...song, lead: step === 1 });
-  }
-  const percent = progress.duration ? (progress.current / progress.duration) * 100 : 0;
+  const queue = order.map(id => songs.find(song => song.id === id)).filter((song): song is PublicTrack => Boolean(song));
+  const displayTime = seekPreview ?? progress.current;
+  const percent = progress.duration ? (displayTime / progress.duration) * 100 : 0;
+  const download = current ? downloads[current.url] : undefined;
+  const downloadPercent = download?.total ? Math.min(99, Math.floor(download.loaded / download.total * 100)) : null;
+  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  const downloadLabel = !current ? "" : download?.state === "complete" ? "Current track · Saved for offline playback"
+    : download?.state === "downloading" ? `Downloading current track · ${downloadPercent !== null ? `${downloadPercent}% · ` : ""}${megabytes(download.loaded)}${download.total ? ` / ${megabytes(download.total)}` : ""}`
+    : download?.state === "failed" ? "Offline download interrupted · Online playback is still available"
+    : "Current track · Streaming / waiting to cache";
+
+  useEffect(() => {
+    if (!current?.url) return;
+    const post = () => navigator.serviceWorker?.controller?.postMessage({type:"track-status",url:current.url});
+    post();
+    navigator.serviceWorker?.addEventListener("controllerchange",post);
+    const timer = window.setInterval(post,3000);
+    return () => { window.clearInterval(timer); navigator.serviceWorker?.removeEventListener("controllerchange",post); };
+  }, [current?.url]);
 
   if (loading && presentation === "full") return <main className="booting">Preparing playlist</main>;
 
   const audios = (
     <>
-      <audio ref={aRef} preload="auto" playsInline onEnded={() => api.current.onEnded("a")} onError={() => api.current.onError("a")} onTimeUpdate={() => api.current.onTime("a")} onPlaying={() => api.current.onPlaying("a")} />
-      <audio ref={bRef} preload="auto" playsInline onEnded={() => api.current.onEnded("b")} onError={() => api.current.onError("b")} onTimeUpdate={() => api.current.onTime("b")} onPlaying={() => api.current.onPlaying("b")} />
+      <audio ref={aRef} preload="auto" playsInline onEnded={() => api.current.onEnded("a")} onError={() => api.current.onError("a")} onTimeUpdate={() => api.current.onTime("a")} onPlaying={() => api.current.onPlaying("a")} onProgress={() => readBuffer("a")} onLoadedMetadata={() => readBuffer("a")} onDurationChange={() => readBuffer("a")} onWaiting={() => { if (activeSlot.current === "a") setBuffering(true); }} onSeeking={() => { if (activeSlot.current === "a") setBuffering(true); }} onSeeked={() => { if (activeSlot.current === "a") { setBuffering(false); readBuffer("a"); } }} onCanPlay={() => { if (activeSlot.current === "a") setBuffering(false); }} />
+      <audio ref={bRef} preload="auto" playsInline onEnded={() => api.current.onEnded("b")} onError={() => api.current.onError("b")} onTimeUpdate={() => api.current.onTime("b")} onPlaying={() => api.current.onPlaying("b")} onProgress={() => readBuffer("b")} onLoadedMetadata={() => readBuffer("b")} onDurationChange={() => readBuffer("b")} onWaiting={() => { if (activeSlot.current === "b") setBuffering(true); }} onSeeking={() => { if (activeSlot.current === "b") setBuffering(true); }} onSeeked={() => { if (activeSlot.current === "b") { setBuffering(false); readBuffer("b"); } }} onCanPlay={() => { if (activeSlot.current === "b") setBuffering(false); }} />
     </>
   );
 
@@ -597,13 +740,18 @@ export function Player({
 
   return (
     <>
-    <main className="player" style={{ ["--glow" as string]: String(18 + (pos % 6) * 4) }}>
+    <main className={`player${mobileMenu ? " mobile-menu-open" : ""}${mobileQueue ? " mobile-queue-open" : ""}`} style={{ ["--glow" as string]: String(18 + (pos % 6) * 4) }}>
+      <div className="mobile-player-nav">
+        <button className="icon-btn" type="button" aria-label="账户与播放状态" aria-expanded={mobileMenu} onClick={() => { setMobileMenu(!mobileMenu); setMobileQueue(false); }}><svg className="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg></button>
+        <strong>Now Playing</strong>
+        <button className="icon-btn" type="button" aria-label="打开歌单" aria-expanded={mobileQueue} aria-controls="player-playlist" onClick={() => { setMobileQueue(!mobileQueue); setMobileMenu(false); }}><OrderIcon /></button>
+      </div>
       <header className="topbar">
         <div className="brand-block">
           <div>
           <p className="eyebrow">
             {playlistName || "Waiting for a playlist"}
-            <span className="test-mark">Test project</span>
+
           </p>
           <h1 className="brand"><Link className="wordmark" href="/">{STORE_NAME}</Link></h1>
           </div>
@@ -615,7 +763,7 @@ export function Player({
         <div className="live-pill">
           <span className={playing ? "dot on" : "dot"} />
           {playing ? "Playing" : started ? "Paused" : "Not started"}
-          <Link className="admin-link" href="/admin">Manage</Link>
+          {role === "admin" ? <Link className="admin-link" href="/admin">Manage</Link> : null}
           <button
             className="admin-link"
             type="button"
@@ -642,29 +790,44 @@ export function Player({
           <h2 className="title">{current?.title || "No music yet"}</h2>
           <p className="artist">{current?.artist || (songs.length ? "Unknown artist" : "Upload a playlist in Manage and it will loop here.")}</p>
           <p className="issue" role="status">{issue}</p>
+          <div className="download-status" role="status">
+            <span>{downloadLabel}</span>
+            {download?.state === "downloading" ? <progress aria-label="Current track download" max={download.total || undefined} value={download.total ? download.loaded : undefined} /> : null}
+            <small>{cacheStatus}</small>
+          </div>
+          {buffering ? <p className="buffering" role="status">Buffering selected position…</p> : null}
+          {sessionIssue ? <form onSubmit={signInAgain}>
+            <p role="alert">{sessionIssue}</p>
+            <input className="field" aria-label="Username" autoComplete="username" value={renewUser} onChange={e => setRenewUser(e.target.value)} required />
+            <input className="field" aria-label="Password" autoComplete="current-password" type="password" value={renewPassword} onChange={e => setRenewPassword(e.target.value)} required />
+            <button className="pill" disabled={renewBusy} type="submit">{renewBusy ? "Signing in…" : "Sign in without stopping music"}</button>
+          </form> : null}
+          <div className="playback-dock" role="group" aria-label="播放控制">
           <div className="timeline">
+            <div className="seek-track">
+            <div className="buffered-track" aria-hidden="true">
+              {buffered.map(([start,end],i) => progress.duration > 0 ? <span key={i} style={{left:`${start / progress.duration * 100}%`,width:`${(end - start) / progress.duration * 100}%`}} /> : null)}
+            </div>
             <input
               type="range"
               min={0}
               max={progress.duration || 0}
               step={0.1}
-              value={Math.min(progress.current, progress.duration || 0)}
+              value={Math.min(displayTime, progress.duration || 0)}
               aria-label="Seek"
-              disabled={!current}
-              style={{ background: `linear-gradient(90deg, var(--accent) ${percent}%, rgba(243,236,223,.18) ${percent}%)` }}
-              onChange={(event) => {
-                const el = slotEl(activeSlot.current);
-                const next = Number(event.target.value);
-                if (el) el.currentTime = next;
-                setProgress((item) => ({ ...item, current: next }));
-              }}
+              disabled={!current || !progress.duration}
+              aria-valuetext={`${formatClock(displayTime)} / ${formatClock(progress.duration)}`}
+              style={{ background: `linear-gradient(90deg, var(--accent) ${percent}%, transparent ${percent}%)` }}
+              onChange={(event) => previewSeek(Number(event.target.value))}
             />
+            </div>
             <div className="times">
-              <span>{formatClock(progress.current)}</span>
+              <span>{formatClock(displayTime)}</span>
               <span>{formatClock(progress.duration)}</span>
             </div>
           </div>
           <div className="controls">
+            <button className={`icon-btn mobile-control mode-toggle${shuffle ? " on" : ""}`} type="button" aria-label="随机播放" aria-pressed={shuffle} onClick={toggleShuffle}>{shuffle ? <ShuffleIcon /> : <OrderIcon />}</button>
             <button className="icon-btn" type="button" aria-label="Previous" onClick={prev} disabled={!songs.length}>
               <PrevIcon />
             </button>
@@ -680,26 +843,22 @@ export function Player({
             <button className="icon-btn" type="button" aria-label="Next" onClick={() => advance(1)} disabled={!songs.length}>
               <NextIcon />
             </button>
+            <button className="icon-btn mobile-control" type="button" aria-label="打开歌单" aria-expanded={mobileQueue} onClick={() => setMobileQueue(true)}><PlaylistIcon /></button>
           </div>
           <div className="tools">
             <button
-              className={shuffle ? "pill on" : "pill"}
+              className={shuffle ? "icon-btn mode-toggle on" : "icon-btn mode-toggle"}
               type="button"
-              onClick={() => {
-                const next = !shuffleRef.current;
-                shuffleRef.current = next;
-                setShuffle(next);
-                localStorage.setItem("fm-shuffle", next ? "1" : "0");
-                const currentId = orderRef.current[posRef.current];
-                const rebuilt = buildOrder(songsRef.current, next, currentId);
-                commitOrder(rebuilt, 0);
-                if (startedRef.current) armNext();
-              }}
+              aria-label="随机播放"
+              aria-pressed={shuffle}
+              title={shuffle ? "随机播放 · 点击切换为顺序播放" : "顺序播放 · 点击切换为随机播放"}
+              onClick={toggleShuffle}
+
             >
-              {shuffle ? "Shuffle" : "In order"}
+              {shuffle ? <ShuffleIcon /> : <OrderIcon />}
             </button>
-            <label className="vol">
-              Volume
+            <label className="vol" title="音量">
+              <VolumeIcon />
               <input
                 type="range"
                 min={0}
@@ -711,28 +870,32 @@ export function Player({
               />
             </label>
             <button
-              className="pill"
+              className="icon-btn"
               type="button"
+              aria-label="切换全屏"
+              title="切换全屏"
               onClick={() => {
                 if (!document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => undefined);
                 else void document.exitFullscreen();
               }}
             >
-              Full screen
+              <FullscreenIcon />
             </button>
             <span className="hints">Space to pause · Arrow keys to skip</span>
           </div>
+          </div>
         </section>
-        <aside className="queue">
-          <h2>Up next</h2>
+        <aside className="queue" id="player-playlist" aria-label="Playlist">
+          <button type="button" className="mobile-queue-close" aria-label="关闭歌单" onClick={() => setMobileQueue(false)}>关闭 ×</button>
+          <h2>Playlist <span className="queue-count">{queue.length} tracks</span></h2>
           {queue.length === 0 ? (
-            <p className="quiet">{songs.length ? "Only one track. It will repeat." : "This playlist is empty."}</p>
+            <p className="quiet">This playlist is empty.</p>
           ) : (
-            <ol>
-              {queue.map((song) => (
-                <li key={`${song.id}-${song.lead ? "next" : "later"}`}>
-                  <button type="button" onClick={() => playFromQueue(song.id)}>
-                    {song.lead ? <span className="q-next">Next</span> : null}
+            <ol aria-label="Playlist tracks" tabIndex={0}>
+              {queue.map((song, index) => (
+                <li key={song.id}>
+                  <button type="button" className={song.id === current?.id ? "current-track" : undefined} aria-current={song.id === current?.id ? "true" : undefined} onClick={() => playFromQueue(song.id)}>
+                    <span className="q-number">{song.id === current?.id ? (playing ? "▶" : "Ⅱ") : String(index + 1).padStart(2, "0")}</span>
                     <span className="q-title">{song.title}</span>
                     <span className="q-artist">{song.artist || "Unknown artist"}</span>
                   </button>
@@ -779,4 +942,21 @@ function NextIcon() {
       <path fill="currentColor" d="M16 6h2v12h-2zM6 6l9 6-9 6V6z" />
     </svg>
   );
+}
+
+function ShuffleIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h3c4 0 8 12 12 12h3m-4-4 4 4-4 4M3 18h3c1.5 0 3-1.7 4.5-4M14 9c1.4-1.8 2.6-3 4-3h3m-4-4 4 4-4 4" /></svg>;
+}
+function OrderIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h11M4 12h8M4 19h8M18 5v14m-3-3 3 3 3-3" /></svg>;
+}
+function VolumeIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4 6 8H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg>;
+}
+function FullscreenIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>;
+}
+
+function PlaylistIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M3 10h14M3 15h8m5-1v6m0-6 5-1v6"/><ellipse cx="14" cy="20" rx="2" ry="1.5"/><ellipse cx="19" cy="19" rx="2" ry="1.5"/></svg>;
 }

@@ -40,13 +40,13 @@ export function AdminPanel() {
   async function loadSession() {
     const response = await fetch("/api/admin/session", { cache: "no-store" });
     const data = await response.json();
-    setAuthed(Boolean(data.ok));
-    if (data.ok) await loadLibrary();
+    setAuthed(data.role === "admin");
+    if (data.role === "admin") await loadLibrary();
   }
 
   async function loadLibrary() {
     const response = await fetch("/api/admin/library", { cache: "no-store" });
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       setAuthed(false);
       return;
     }
@@ -76,8 +76,8 @@ export function AdminPanel() {
       body: JSON.stringify({ username, password }),
     });
     const data = await response.json();
-    if (!response.ok) {
-      setLoginError(data.error || "Couldn't log in");
+    if (!response.ok || data.role !== "admin") {
+      setLoginError(data.error || "Administrator account required");
       return;
     }
     setAuthed(true);
@@ -93,7 +93,7 @@ export function AdminPanel() {
         body: JSON.stringify(body),
       });
       const data = await response.json();
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
         setAuthed(false);
         throw new Error("Session expired");
       }

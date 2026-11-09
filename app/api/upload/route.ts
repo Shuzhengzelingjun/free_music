@@ -1,5 +1,5 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { isAuthed } from "@/lib/auth";
+import { isAdmin } from "@/lib/auth";
 import { readManifest } from "@/lib/manifest";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        if (!(await isAuthed())) throw new Error("Not signed in");
+        if (!(await isAdmin())) throw new Error("Not signed in");
         if (!pathname.startsWith("freemusic/audio/")) throw new Error("Invalid path");
         const manifest = await readManifest();
         if (manifest.songs.length >= 30) throw new Error("The library can hold 30 tracks");
@@ -28,6 +28,6 @@ export async function POST(request: Request) {
     return Response.json(jsonResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload failed";
-    return Response.json({ error: message }, { status: message === "Not signed in" ? 401 : 400 });
+    return Response.json({ error: message }, { status: message === "Not signed in" ? 403 : 400 });
   }
 }

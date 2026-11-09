@@ -1,6 +1,6 @@
 export function prepareDeviceAudio(): Promise<void> {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return Promise.resolve();
-  const ready = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+  const ready = navigator.serviceWorker.register("/sw.js?v=3", { updateViaCache: "none" }).then(() => navigator.serviceWorker.ready);
   const controlled = new Promise<void>((resolve) => {
     if (navigator.serviceWorker.controller) {
       resolve();
@@ -18,7 +18,7 @@ export function prepareDeviceAudio(): Promise<void> {
 
 export function retainDeviceAudio(urls: string[]) {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  const post = () => navigator.serviceWorker.controller?.postMessage({ type: "retain-audio", urls });
+  const post = () => navigator.serviceWorker.controller?.postMessage({ type: "retain-audio", urls, pagePath: window.location.pathname.startsWith("/play/") ? window.location.pathname : "/" });
   post();
   void navigator.serviceWorker.ready.then(post).catch(() => undefined);
 }

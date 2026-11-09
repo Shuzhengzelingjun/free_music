@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { prepareDeviceAudio } from "@/lib/audioCache";
 import { STORE_NAME } from "@/lib/audio";
 
 export function LoginGate({
@@ -18,7 +19,7 @@ export function LoginGate({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void fetch("/api/admin/session", { cache: "no-store" })
+    void prepareDeviceAudio().catch(() => undefined).then(() => fetch("/api/admin/session", { cache: "no-store", signal: AbortSignal.timeout(15000) }))
       .then((response) => response.json())
       .then((data) => setAuthed(Boolean(data.ok)))
       .catch(() => setAuthed(false));

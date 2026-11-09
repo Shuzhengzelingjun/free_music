@@ -1,11 +1,13 @@
-import { clearSessionCookie, credentialsMatch, isAuthed, setSessionCookie } from "@/lib/auth";
+import { clearSessionCookie, accountRole, getSessionRole, setSessionCookie } from "@/lib/auth";
 import { allowAttempt } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return Response.json({ ok: await isAuthed() });
+  const role = await getSessionRole();
+  if (role) await setSessionCookie(role);
+  return Response.json({ ok: Boolean(role), role }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function POST(request: Request) {
@@ -16,11 +18,12 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { username?: string; password?: string } | null;
   const username = typeof body?.username === "string" ? body.username.slice(0, 80) : "";
   const password = typeof body?.password === "string" ? body.password.slice(0, 200) : "";
-  if (!credentialsMatch(username, password)) {
+  const role = accountRole(username, password);
+  if (!role) {
     return Response.json({ error: "Incorrect username or password" }, { status: 401 });
   }
-  await setSessionCookie();
-  return Response.json({ ok: true });
+  await setSessionCookie(role);
+  return Response.json({ ok: true, role });
 }
 
 export async function DELETE() {
