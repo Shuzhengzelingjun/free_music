@@ -140,3 +140,48 @@ test('cached seek supports missing content length, suffix ranges and rejects rev
     assert.equal(await response.text(),body);
   }
 });
+function loginHarness() {
+  const limiter = loadRoute('lib/http.ts', {});
+  const route = loadRoute('app/api/admin/session/route.ts', {
+    '@/lib/http': limiter,
+    '@/lib/auth': {
+      accountRole: (_username,password) => password === 'correct' ? 'store' : null,
+      setSessionCookie: async()=>{},
+    },
+  });
+  const login = (username='shop',password='wrong',ip='192.0.2.1') => route.POST(new Request('https://music.test/api/admin/session', {
+    method:'POST', headers:{'content-type':'application/json','x-forwarded-for':ip}, body:JSON.stringify({username,password}),
+  }));
+  return {login,limiter};
+}
+test('repeated successful logins do not consume the failed-login limit',async()=>{
+  const {login}=loginHarness();
+  for(let i=0;i<20;i++) assert.equal((await login('shop','correct')).status,200);
+});
+test('successful login clears previous failures',async()=>{
+  const {login}=loginHarness();
+  for(let i=0;i<7;i++) assert.equal((await login()).status,401);
+  assert.equal((await login('shop','correct')).status,200);
+  for(let i=0;i<7;i++) assert.equal((await login()).status,401);
+});
+test('lockouts use normalized account plus IP and return the remaining wait',async()=>{
+  const {login}=loginHarness();
+  for(let i=0;i<7;i++) await login(' Shop ');
+  const response=await login('SHOP');
+  assert.equal(response.status,429);
+  const body=await response.json();
+  assert.ok(body.retryAfter>0 && body.retryAfter<=600);
+  assert.equal(response.headers.get('retry-after'),String(body.retryAfter));
+  assert.match(body.error,/Try again in/);
+  assert.equal((await login('other','correct')).status,200);
+  assert.equal((await login('shop','correct','192.0.2.2')).status,200);
+  assert.equal((await login('shop','correct')).status,429);
+});
+test('failed-login window expires exactly at its deadline without extending on checks',()=>{
+  const {limiter}=loginHarness();
+  for(let i=0;i<8;i++) limiter.recordLoginFailure('key',1000);
+  assert.equal(limiter.loginRetryAfter('key',1000),600);
+  assert.equal(limiter.loginRetryAfter('key',600000),1);
+  assert.equal(limiter.loginRetryAfter('key',601000),0);
+  assert.equal(limiter.recordLoginFailure('key',601000),0);
+});
