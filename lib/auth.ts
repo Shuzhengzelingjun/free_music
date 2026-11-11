@@ -7,7 +7,7 @@ const MAX_AGE = 60 * 60 * 24 * 14;
 
 function secret() {
   const value = process.env.ADMIN_SECRET;
-  if (!value || value.length < 32) throw new Error("Set ADMIN_SECRET to a random value of at least 32 characters");
+  if (!value) throw new Error("Set ADMIN_SECRET to a non-empty signing secret");
   return value;
 }
 

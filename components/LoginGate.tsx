@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { prepareDeviceAudio } from "@/lib/audioCache";
+import { submitLogin } from "@/lib/login";
 import { STORE_NAME } from "@/lib/audio";
 
 export function LoginGate({
@@ -16,6 +17,7 @@ export function LoginGate({
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -27,18 +29,17 @@ export function LoginGate({
 
   async function login(event: React.FormEvent) {
     event.preventDefault();
+    if (loggingIn) return;
     setError("");
-    const response = await fetch("/api/admin/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error || "Couldn't log in");
-      return;
+    setLoggingIn(true);
+    try {
+      await submitLogin(username, password);
+      setAuthed(true);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "登录失败，请重试。");
+    } finally {
+      setLoggingIn(false);
     }
-    setAuthed(true);
   }
 
   if (authed === null) return <main className="booting">Opening</main>;
@@ -65,8 +66,8 @@ export function LoginGate({
               placeholder="Password"
               onChange={(event) => setPassword(event.target.value)}
             />
-            <button className="primary" type="submit">Log in</button>
-            <p className="error">{error}</p>
+            <button className="primary" type="submit" disabled={loggingIn}>{loggingIn ? "Logging in…" : "Log in"}</button>
+            <p className="error" role="alert">{error}</p>
           </form>
         </section>
       </main>

@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-function auth() {
+function auth(overrides = {}) {
   const exports = {};
-  const env = {ADMIN_SECRET:'random-test-secret-32-characters-long', ADMIN_USERNAME:'owner', ADMIN_PASSWORD:'owner-password', STORE_USERNAME:'shop', STORE_PASSWORD:'shop-password'};
+  const env = {ADMIN_SECRET:'random-test-secret-32-characters-long', ADMIN_USERNAME:'owner', ADMIN_PASSWORD:'owner-password', STORE_USERNAME:'shop', STORE_PASSWORD:'shop-password', ...overrides};
   const code = ts.transpileModule(fs.readFileSync('lib/auth.ts','utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, {exports, require: name => name === 'next/headers' ? {} : require(name), process:{env}, Buffer, Date});
   return exports;
@@ -184,4 +184,15 @@ test('failed-login window expires exactly at its deadline without extending on c
   assert.equal(limiter.loginRetryAfter('key',600000),1);
   assert.equal(limiter.loginRetryAfter('key',601000),0);
   assert.equal(limiter.recordLoginFailure('key',601000),0);
+});
+
+test('existing short signing secrets support store login without a length requirement',()=>{
+  const a=auth({ADMIN_SECRET:'short-key'});
+  assert.equal(a.sessionRole(a.createSessionToken('store')),'store');
+  assert.equal(a.sessionRole(a.createSessionToken('admin')),'admin');
+});
+test('missing signing secret is rejected instead of falling back to a login password',()=>{
+  for (const value of ['',undefined]) {
+    assert.throws(()=>auth({ADMIN_SECRET:value}).createSessionToken('store'),/non-empty signing secret/);
+  }
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { submitLogin } from "@/lib/login";
 import { upload } from "@vercel/blob/client";
 import {
   STORE_NAME,
@@ -18,6 +19,7 @@ export function AdminPanel() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [library, setLibrary] = useState<LibraryResponse | null>(null);
   const [selected, setSelected] = useState<string>("library");
@@ -45,11 +47,12 @@ export function AdminPanel() {
   }
 
   async function loadLibrary() {
-    const response = await fetch("/api/admin/library", { cache: "no-store" });
+    const response = await fetch("/api/admin/library", { cache: "no-store", signal: AbortSignal.timeout(15000) });
     if (response.status === 401 || response.status === 403) {
       setAuthed(false);
-      return;
+      throw new Error("管理员登录已失效，请重新登录。");
     }
+    if (!response.ok) throw new Error("已登录，但曲库暂时无法加载，请稍后重试。");
     const data = (await response.json()) as LibraryResponse;
     applyLibrary(data);
   }
@@ -64,24 +67,24 @@ export function AdminPanel() {
   }
 
   useEffect(() => {
-    void loadSession();
+    void loadSession().catch(() => { setAuthed(false); setLoginError("无法加载管理页面，请重新登录或稍后重试。"); });
   }, []);
 
   async function login(event: React.FormEvent) {
     event.preventDefault();
+    if (loggingIn) return;
     setLoginError("");
-    const response = await fetch("/api/admin/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await response.json();
-    if (!response.ok || data.role !== "admin") {
-      setLoginError(data.error || "Administrator account required");
-      return;
+    setLoggingIn(true);
+    try {
+      const data = await submitLogin(username, password);
+      if (data.role !== "admin") throw new Error("此账号只有播放权限，请使用管理员账号。");
+      await loadLibrary();
+      setAuthed(true);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "登录失败，请重试。");
+    } finally {
+      setLoggingIn(false);
     }
-    setAuthed(true);
-    await loadLibrary();
   }
 
   async function act(body: Record<string, unknown>) {
@@ -216,8 +219,8 @@ export function AdminPanel() {
               placeholder="Password"
               onChange={(event) => setPassword(event.target.value)}
             />
-            <button className="primary" type="submit">Log in</button>
-            <p className="error">{loginError}</p>
+            <button className="primary" type="submit" disabled={loggingIn}>{loggingIn ? "Logging in…" : "Log in"}</button>
+            <p className="error" role="alert">{loginError}</p>
           </form>
         </section>
       </main>
