@@ -5,10 +5,15 @@ const COOKIE = "fm_session";
 export type SessionRole = "admin" | "store";
 const MAX_AGE = 60 * 60 * 24 * 14;
 
-function secret() {
-  const value = process.env.ADMIN_SECRET;
-  if (!value) throw new Error("Set ADMIN_SECRET to a non-empty signing secret");
-  return value;
+function secret(role: SessionRole) {
+  if (process.env.ADMIN_SECRET) return process.env.ADMIN_SECRET;
+  // Keep password-based sessions isolated by role. A store password must
+  // never be sufficient to sign an administrator session.
+  const password = role === "store" ? expectedAccount().password : process.env.ADMIN_PASSWORD;
+  if (!password || (role === "admin" && !process.env.ADMIN_USERNAME)) {
+    throw new Error("Administrator account is not configured");
+  }
+  return createHash("sha256").update(`fm-session-v2\0${role}\0${password}`).digest();
 }
 
 export function expectedAccount() {
@@ -38,26 +43,31 @@ export function createSessionToken(role: SessionRole) {
   const payload = Buffer.from(
     JSON.stringify({ version: 2, role, exp: Date.now() + MAX_AGE * 1000 }),
   ).toString("base64url");
-  const signature = createHmac("sha256", secret()).update(payload).digest("base64url");
+  const signature = createHmac("sha256", secret(role)).update(payload).digest("base64url");
   return `${payload}.${signature}`;
 }
 
 export function sessionRole(token?: string | null): SessionRole | null {
-  if (!token) return null;
-  const [payload, signature] = token.split(".");
+  if (!token || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, signature] = parts;
   if (!payload || !signature) return null;
-  const expected = createHmac("sha256", secret()).update(payload).digest("base64url");
-  const actualBuffer = Buffer.from(signature);
-  const expectedBuffer = Buffer.from(expected);
-  if (actualBuffer.length !== expectedBuffer.length) return null;
-  if (!timingSafeEqual(actualBuffer, expectedBuffer)) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
       version?: number;
       role?: string;
       exp?: number;
     };
-    return data.version === 2 && (data.role === "admin" || data.role === "store") && typeof data.exp === "number" && data.exp > Date.now() ? data.role : null;
+    if (data.version !== 2 || (data.role !== "admin" && data.role !== "store") ||
+        typeof data.exp !== "number" || data.exp <= Date.now()) return null;
+    // The untrusted role selects a key, but grants no access until its
+    // signature has been verified using that role's own credentials.
+    const expected = createHmac("sha256", secret(data.role)).update(payload).digest("base64url");
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    return data.role;
   } catch {
     return null;
   }

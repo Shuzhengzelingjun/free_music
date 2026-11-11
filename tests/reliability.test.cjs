@@ -191,8 +191,33 @@ test('existing short signing secrets support store login without a length requir
   assert.equal(a.sessionRole(a.createSessionToken('store')),'store');
   assert.equal(a.sessionRole(a.createSessionToken('admin')),'admin');
 });
-test('missing signing secret is rejected instead of falling back to a login password',()=>{
+test('store and admin sessions work without configuring ADMIN_SECRET',()=>{
   for (const value of ['',undefined]) {
-    assert.throws(()=>auth({ADMIN_SECRET:value}).createSessionToken('store'),/non-empty signing secret/);
+    const a=auth({ADMIN_SECRET:value});
+    assert.equal(a.sessionRole(a.createSessionToken('store')),'store');
+    assert.equal(a.sessionRole(a.createSessionToken('admin')),'admin');
   }
+});
+test('store password cannot sign administrator sessions when ADMIN_SECRET is absent',()=>{
+  const a=auth({ADMIN_SECRET:''});
+  const crypto=require('crypto');
+  const payload=Buffer.from(JSON.stringify({version:2,role:'admin',exp:Date.now()+100000})).toString('base64url');
+  for (const role of ['store','admin']) {
+    const key=crypto.createHash('sha256').update(`fm-session-v2\0${role}\0shop-password`).digest();
+    const signature=crypto.createHmac('sha256',key).update(payload).digest('base64url');
+    assert.equal(a.sessionRole(`${payload}.${signature}`),null);
+  }
+});
+test('unconfigured administrators cannot get password-based sessions',()=>{
+  const a=auth({ADMIN_SECRET:'',ADMIN_USERNAME:'',ADMIN_PASSWORD:''});
+  assert.throws(()=>a.createSessionToken('admin'),/not configured/);
+  assert.equal(a.sessionRole(a.createSessionToken('store')),'store');
+});
+test('password changes invalidate password-based sessions for that role only',()=>{
+  const a=auth({ADMIN_SECRET:''});
+  const store=a.createSessionToken('store');
+  const admin=a.createSessionToken('admin');
+  const changed=auth({ADMIN_SECRET:'',STORE_PASSWORD:'different'});
+  assert.equal(changed.sessionRole(store),null);
+  assert.equal(changed.sessionRole(admin),'admin');
 });
