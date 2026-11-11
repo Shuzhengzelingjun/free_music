@@ -60,6 +60,7 @@ export function Player({
     onPlaying: (_slot: Slot) => {},
   });
 
+  const [search, setSearch] = useState("");
   const [mobileQueue, setMobileQueue] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [songs, setSongs] = useState<PublicTrack[]>([]);
@@ -711,6 +712,8 @@ export function Player({
 
   const current = songs.find((song) => song.id === order[pos]) || null;
   const queue = order.map(id => songs.find(song => song.id === id)).filter((song): song is PublicTrack => Boolean(song));
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const filteredQueue = queue.filter(song => `${song.title} ${song.artist}`.toLocaleLowerCase().includes(searchTerm));
   const displayTime = seekPreview ?? progress.current;
   const percent = progress.duration ? (displayTime / progress.duration) * 100 : 0;
   const download = current ? downloads[current.url] : undefined;
@@ -796,9 +799,9 @@ export function Player({
         <div className="live-pill">
           <span className={playing ? "dot on" : "dot"} />
           {playing ? "Playing" : started ? "Paused" : "Not started"}
-          {role === "admin" ? <Link className="admin-link" href="/admin">Manage</Link> : null}
+          {role === "admin" ? <Link className="admin-link" href="/admin"><span className="desktop-only"><SettingsIcon /></span>Manage</Link> : null}
           <button
-            className="admin-link"
+            className="admin-link logout-link"
             type="button"
             onClick={() => {
               void fetch("/api/admin/session", { method: "DELETE" }).then(() => {
@@ -808,6 +811,10 @@ export function Player({
           >
             Log out
           </button>
+          <details className="desktop-account desktop-only">
+            <summary aria-label="Account menu" title="Account"><AccountIcon /></summary>
+            <div className="account-menu"><span>{role === "admin" ? "Administrator" : "Store account"}</span><button type="button" onClick={() => { void fetch("/api/admin/session", {method:"DELETE"}).then(() => window.location.reload()); }}>Log out</button></div>
+          </details>
         </div>
       </header>
       <div className="rule" />
@@ -876,6 +883,7 @@ export function Player({
             <button className="icon-btn" type="button" aria-label="Next" onClick={() => advance(1)} disabled={!songs.length}>
               <NextIcon />
             </button>
+            <span className="desktop-only repeat-indicator" title="Playlist repeats automatically" aria-label="Playlist repeats automatically"><RepeatIcon /></span>
             <button className="icon-btn mobile-control" type="button" aria-label="打开歌单" aria-expanded={mobileQueue} onClick={() => setMobileQueue(true)}><PlaylistIcon /></button>
           </div>
           <div className="tools">
@@ -921,10 +929,25 @@ export function Player({
         <aside className="queue" id="player-playlist" aria-label="Playlist">
           <button type="button" className="mobile-queue-close" aria-label="关闭歌单" onClick={() => setMobileQueue(false)}>关闭 ×</button>
           <h2>Playlist <span className="queue-count">{queue.length} tracks</span></h2>
+          <div className="desktop-only playlist-search">
+            <SearchIcon />
+            <input type="search" aria-label="Search songs or artists" placeholder="Search songs or artists" value={search} onChange={event => setSearch(event.target.value)} />
+          </div>
+          <div className="desktop-only playlist-columns" aria-hidden="true"><span>TRACK</span><span>ARTIST</span></div>
+          <ol className="desktop-playlist" aria-label="Searchable playlist tracks" tabIndex={0}>
+            {filteredQueue.map((song, index) => <li key={song.id}>
+              <button type="button" className={song.id === current?.id ? "current-track" : undefined} aria-current={song.id === current?.id ? "true" : undefined} onClick={() => playFromQueue(song.id)}>
+                <span className={`track-art track-art-${index % 4}`} aria-hidden="true"><span /></span>
+                <span className="track-copy">{song.id === current?.id ? <span className="track-playing" aria-label={playing ? "Playing" : "Paused"}>{playing ? "▂▅▃" : "Ⅱ"}</span> : null}<span>{song.title}</span></span>
+                <span className="track-artist">{song.artist || "Unknown artist"}</span>
+              </button>
+            </li>)}
+            {!filteredQueue.length ? <li className="quiet search-empty">{queue.length ? "No songs found. Try another search." : "This playlist is empty."}</li> : null}
+          </ol>
           {queue.length === 0 ? (
-            <p className="quiet">This playlist is empty.</p>
+            <p className="quiet mobile-playlist">This playlist is empty.</p>
           ) : (
-            <ol aria-label="Playlist tracks" tabIndex={0}>
+            <ol className="mobile-playlist" aria-label="Playlist tracks" tabIndex={0}>
               {queue.map((song, index) => (
                 <li key={song.id}>
                   <button type="button" className={song.id === current?.id ? "current-track" : undefined} aria-current={song.id === current?.id ? "true" : undefined} onClick={() => playFromQueue(song.id)}>
@@ -992,4 +1015,17 @@ function FullscreenIcon() {
 
 function PlaylistIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true" className="glyph" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M3 10h14M3 15h8m5-1v6m0-6 5-1v6"/><ellipse cx="14" cy="20" rx="2" ry="1.5"/><ellipse cx="19" cy="19" rx="2" ry="1.5"/></svg>;
+}
+
+function SearchIcon() {
+  return <svg className="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>;
+}
+function SettingsIcon() {
+  return <svg className="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m9 3-1 3-3 1-2 4 2 2v4l4 2 3-1 3 1 4-2v-4l2-2-2-4-3-1-1-3Z"/><circle cx="12" cy="11" r="3"/></svg>;
+}
+function AccountIcon() {
+  return <svg className="glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 21v-3a8 8 0 0 1 16 0v3Z"/></svg>;
+}
+function RepeatIcon() {
+  return <svg className="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10V8a3 3 0 0 1 3-3h13m-3-3 3 3-3 3M20 14v2a3 3 0 0 1-3 3H4m3-3-3 3 3 3"/></svg>;
 }
